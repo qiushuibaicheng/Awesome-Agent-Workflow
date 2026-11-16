@@ -5,13 +5,20 @@ export const sampleTool: ToolPackage = {
   id: "json-formatter",
   name: "JSON 格式化",
   version: "1.0.0",
+  actions: [{
+    id: "format",
+    description: "将 JSON 文本格式化为两个空格缩进",
+    inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+  }],
   html: `<style>
-  :root { color-scheme: light dark; }
-  body { font: 1rem system-ui; margin: 20px; }
-  form { display: grid; gap: 12px; }
-  textarea { box-sizing: border-box; width: 100%; min-height: 12em; font: inherit; }
-  button { justify-self: start; font: inherit; padding: 6px 14px; }
-  output { white-space: pre-wrap; }
+  :root { color-scheme: light dark; color: CanvasText; background: Canvas; }
+  body { font: 14px system-ui; max-width: 62rem; margin: 0 auto; padding: clamp(16px, 4vw, 32px); }
+  form { display: grid; gap: 13px; }
+  label { font-weight: 650; font-size: 1.05rem; }
+  textarea { box-sizing: border-box; width: 100%; min-height: 16em; padding: 14px; border: 1px solid color-mix(in srgb, CanvasText 22%, Canvas); border-radius: 12px; color: CanvasText; background: color-mix(in srgb, CanvasText 6%, Canvas); font: 13px/1.65 ui-monospace, Consolas, monospace; }
+  button { justify-self: start; border: 0; border-radius: 8px; background: #2957b8; color: white; font: inherit; font-weight: 600; padding: 8px 17px; cursor: pointer; }
+  button:hover { background: #3568d1; }
+  output { white-space: pre-wrap; min-height: 1.2em; }
 </style>
 <form>
   <label for="source">输入 JSON</label>
@@ -20,14 +27,16 @@ export const sampleTool: ToolPackage = {
   <output id="status" aria-live="polite"></output>
 </form>
 <script>
-  function formatJson(text) {
+  function format({ text }) {
+    if (typeof text !== 'string') throw new Error('text 必须是字符串');
     return JSON.stringify(JSON.parse(text), null, 2);
   }
+  window.aawActions = { format };
   const source = document.querySelector('#source');
   const status = document.querySelector('#status');
   document.querySelector('#format').addEventListener('click', () => {
     try {
-      source.value = formatJson(source.value);
+      source.value = format({ text: source.value });
       status.textContent = '格式化完成';
     } catch {
       status.textContent = '输入不是有效的 JSON';
