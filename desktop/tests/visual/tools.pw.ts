@@ -52,3 +52,21 @@ test("exports a downloadable source ZIP with editable HTML and build script", as
   expect(tool.html).toContain("aawActions");
   await expect(page.getByRole("status")).toContainText("已导出");
 });
+
+for (const width of [360, 740]) {
+  test(`unsaved settings warning stays visible after source action at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 650 });
+    await page.goto(`/tests/visual/toolsFixture.html${width === 360 ? "?warm" : ""}`);
+    await page.getByRole("button", { name: "管理 JSON 格式化" }).click();
+    await page.getByLabel(/缩进空格数/).fill("4");
+    await page.getByRole("button", { name: "编辑工具包", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeInViewport();
+    await expect(page.getByRole("button", { name: "继续编辑" })).toBeFocused();
+    await page.screenshot({ path: `node_modules/.cache/tools-unsaved-${width}.png` });
+    await page.getByRole("button", { name: "继续编辑" }).click();
+    await expect(page.getByLabel(/缩进空格数/)).toHaveValue("4");
+    await page.getByRole("button", { name: "编辑工具包", exact: true }).click();
+    await page.getByRole("button", { name: "放弃修改并继续" }).click();
+    await expect(page.getByLabel("工具包源码")).toBeVisible();
+  });
+}

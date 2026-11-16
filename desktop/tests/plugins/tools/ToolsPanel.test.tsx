@@ -3,14 +3,49 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createStore } from "zustand";
 import { ToolsPanel } from "../../../src/plugins/tools/ui/ToolsPanel.tsx";
 import { sampleTool } from "../../../src/plugins/tools/ui/sample.ts";
-import type { PersonalTool } from "../../../src/plugins/tools/types.ts";
+import type { PersonalTool, ToolSettings } from "../../../src/plugins/tools/types.ts";
 import type { ToolsService } from "../../../src/plugins/tools/service.ts";
 import type { HostService } from "../../../src/plugins/host/service.ts";
 import { importToolProject } from "../../../src/plugins/tools/runtime/projectArchive.ts";
+import { ToolManagement } from "../../../src/plugins/tools/ui/ToolManagement.tsx";
+
+it("defers a selected source update until dirty settings are explicitly discarded", () => {
+  const update = vi.fn();
+  const { container } = render(<ToolManagement entry={{ package: sampleTool }} onBack={vi.fn()} onOpen={vi.fn()}
+    onExport={vi.fn()} onUpdate={update} onEdit={vi.fn()} onSave={() => true} onRemove={vi.fn()} busy={false} />);
+  fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
+  const file = new File(["{}"], "update.json", { type: "application/json" });
+  const picker = container.querySelector('input[type="file"]')!;
+  fireEvent.change(picker, { target: { files: [file] } });
+  expect(update).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "继续编辑" })).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "继续编辑" }));
+  expect(screen.getByLabelText(/缩进空格数/)).toHaveValue(4);
+  fireEvent.change(picker, { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "放弃修改并继续" }));
+  expect(update).toHaveBeenCalledExactlyOnceWith(file);
+});
+
+it("keeps unsaved settings until source editing is explicitly confirmed", () => {
+  const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool }]);
+  const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  render(<ToolsPanel service={service} host={host} />);
+  fireEvent.click(screen.getByRole("button", { name: "管理 JSON 格式化" }));
+  fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
+  fireEvent.click(screen.getByRole("button", { name: "编辑工具包" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("未保存");
+  fireEvent.click(screen.getByRole("button", { name: "继续编辑" }));
+  expect(screen.getByLabelText(/缩进空格数/)).toHaveValue(4);
+  fireEvent.click(screen.getByRole("button", { name: "编辑工具包" }));
+  fireEvent.click(screen.getByRole("button", { name: "放弃修改并继续" }));
+  expect(screen.getByLabelText("工具包源码")).toBeVisible();
+  expect(service.saveSettings).not.toHaveBeenCalled();
+});
 
 it("opens Electron directly, routes Manage separately, saves settings and exports source ZIP", async () => {
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool, settings: { indent: 2 } }]);
-  const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn((_id, values) => state.setState([{ package: sampleTool, settings: values }], true)) } satisfies ToolsService;
+  const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn((_id: string, values: ToolSettings) => state.setState([{ package: sampleTool, settings: values }], true)) } satisfies ToolsService;
   const open = vi.fn().mockResolvedValue(undefined);
   const write = vi.fn().mockResolvedValue(undefined);
   const host = { isNative: () => true, openToolsElectron: open, writeToolArchive: write,
