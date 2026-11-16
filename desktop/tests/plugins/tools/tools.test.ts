@@ -35,6 +35,9 @@ it("maintains distinct personal libraries and keeps recent use when updating", a
     account.loginAsDev(first);
     tools.install(a);
     tools.install(b);
+    tools.install({ ...a, settingsSchema: [{ id: "count", type: "number", label: "数量", default: 2, min: 1, max: 8 }] }, true);
+    tools.saveSettings(a.id, { count: 4 });
+    expect(() => tools.saveSettings(a.id, { count: -1 })).toThrow("数量");
     expect(() => tools.install(b)).toThrow("相同 ID");
     tools.open(b.id);
     tools.install({ ...b, version: "1.1.0" }, true);
@@ -42,6 +45,7 @@ it("maintains distinct personal libraries and keeps recent use when updating", a
     account.loginAsDev(second);
     expect(tools.state.getState()).toEqual([]);
     account.loginAsDev(first);
+    expect(tools.state.getState().find((entry) => entry.package.id === a.id)?.settings).toEqual({ count: 4 });
     expect(tools.state.getState()[0]?.package.version).toBe("1.1.0");
     tools.remove(b.id);
     expect(tools.state.getState().map((entry) => entry.package.id)).toEqual(["a"]);

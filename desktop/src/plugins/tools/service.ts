@@ -1,5 +1,5 @@
 import type { ReadonlySnapshot } from "../../shared/state/readonlySnapshot.ts";
-import type { PersonalTool, ToolPackage } from "./types.ts";
+import type { PersonalTool, ToolPackage, ToolSettings } from "./types.ts";
 
 import type {} from "cordis";
 
@@ -14,4 +14,5 @@ export interface ToolsService {
   install(tool: ToolPackage, replace?: boolean): void;
   open(id: string): void;
   remove(id: string): void;
+  saveSettings(id: string, values: ToolSettings): void;
 }

@@ -1,0 +1,45 @@
+import { it, expect } from "vitest";
+import { strToU8, unzipSync, zipSync } from "fflate";
+import { exportToolProject, importToolProject } from "../../../src/plugins/tools/runtime/projectArchive.ts";
+import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
+import { resolveToolSettings, toolSettingsScript, validateToolSettings } from "../../../src/plugins/tools/runtime/settings.ts";
+import { sampleTool } from "../../../src/plugins/tools/ui/sample.ts";
+
+it("exports editable project sources and roundtrips authoring files, actions and setting declarations", () => {
+  const tool = { ...sampleTool, sourceFiles: { "src/notes.md": "我的开发记录" } };
+  const bytes = exportToolProject(tool);
+  expect([...bytes.slice(0, 4)]).toEqual([80, 75, 3, 4]);
+  const files = unzipSync(bytes);
+  expect(Object.keys(files)).toEqual(expect.arrayContaining(["manifest.json", "index.html", "README.md", "scripts/build.mjs", "package.json", "src/notes.md"]));
+  const imported = importToolProject(bytes);
+  expect(imported.html).toBe(sampleTool.html);
+  expect(imported.settingsSchema).toEqual(sampleTool.settingsSchema);
+  expect(imported.actions).toEqual(sampleTool.actions);
+  expect(imported.sourceFiles?.["src/notes.md"]).toBe("我的开发记录");
+  expect(JSON.parse(new TextDecoder().decode(files["manifest.json"]))).not.toHaveProperty("html");
+});
+
+it("accepts a single outer project folder and edited HTML", () => {
+  const files = unzipSync(exportToolProject(sampleTool));
+  files["index.html"] = strToU8("<h1>edited</h1>");
+  const wrapped = Object.fromEntries(Object.entries(files).map(([path, bytes]) => [`project/${path}`, bytes]));
+  expect(importToolProject(zipSync(wrapped)).html).toBe("<h1>edited</h1>");
+});
+
+it("rejects traversal, ambiguous archives, oversized expansion and invalid setting schemas", () => {
+  const files = unzipSync(exportToolProject(sampleTool));
+  expect(() => importToolProject(zipSync({ ...files, "../secret": strToU8("x") }))).toThrow("路径");
+  expect(() => importToolProject(zipSync({ ...files, "other/manifest.json": files["manifest.json"]! }))).toThrow("唯一");
+  expect(() => importToolProject(zipSync({ ...files, "bomb.txt": new Uint8Array(2 * 1024 * 1024) }))).toThrow("解压后");
+  expect(() => parseToolPackage(JSON.stringify({ ...sampleTool, settingsSchema: [{ id: "bad", type: "number", label: "Bad", default: 9, max: 2 }] }))).toThrow();
+});
+
+it("validates settings, drops obsolete keys and escapes script boundaries", () => {
+  expect(resolveToolSettings(sampleTool, { indent: 4, obsolete: "removed" })).toEqual({ indent: 4 });
+  expect(resolveToolSettings(sampleTool, { indent: 99 })).toEqual({ indent: 2 });
+  expect(() => validateToolSettings(sampleTool, { indent: -1 })).toThrow("缩进");
+  const tool = parseToolPackage(JSON.stringify({ ...sampleTool, settingsSchema: [{ id: "text", type: "text", label: "Text", default: "" }] }));
+  const script = toolSettingsScript(tool, { text: "</script><script>bad()</script>" });
+  expect(script.match(/<\/script>/g)).toHaveLength(1);
+  expect(script).toContain("\\u003c/script>");
+});

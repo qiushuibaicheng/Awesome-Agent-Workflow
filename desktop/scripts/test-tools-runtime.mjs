@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sampleTool } from "../src/plugins/tools/ui/sample.ts";
+import { exportToolProject, importToolProject } from "../src/plugins/tools/runtime/projectArchive.ts";
+import { unzipSync } from "fflate";
 
 const root = mkdtempSync(join(tmpdir(), "aaw-tools-runtime-test-"));
 const runner = fileURLToPath(new URL("./tools-cli.mjs", import.meta.url));
@@ -23,7 +25,7 @@ try {
   writeFileSync(join(configuration, "preferences.json"), JSON.stringify({
     "aaw-desktop.auth.v1": JSON.stringify({ version: 1, user: { id: "smoke" } }),
     "aaw-desktop.personal-tools.v1": JSON.stringify({
-      "user:smoke": [{ package: sampleTool }],
+      "user:smoke": [{ package: sampleTool, settings: { indent: 4 } }],
       "user:unrelated": [{ package: { ...sampleTool, id: "hidden" } }],
     }),
   }));
@@ -36,10 +38,23 @@ try {
   assert.equal(described.data.result.actions[0].inputSchema.properties.text.type, "string");
 
   const executed = invoke(["run", sampleTool.id, "format"], JSON.stringify({ text: '{"hello":"AAW"}' }));
-  assert.deepEqual(executed, { code: 0, data: { ok: true, result: '{\n  "hello": "AAW"\n}' } });
+  assert.deepEqual(executed, { code: 0, data: { ok: true, result: '{\n    "hello": "AAW"\n}' } });
   const wrongAction = invoke(["run", sampleTool.id, "missing"], "{}");
   assert.equal(wrongAction.code, 1);
   assert.equal(wrongAction.data.ok, false);
+  const exported = join(root, "source");
+  const archive = exportToolProject(sampleTool);
+  assert.equal(importToolProject(archive).html, sampleTool.html);
+  for (const [path, bytes] of Object.entries(unzipSync(archive))) {
+    const target = join(exported, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+  }
+  const built = spawnSync(process.execPath, [join(exported, "scripts", "build.mjs")], { encoding: "utf8", timeout: 10000 });
+  assert.equal(built.status, 0, built.stderr);
+  const rebuilt = JSON.parse(readFileSync(join(exported, "dist", `${sampleTool.id}.aaw-tool.json`), "utf8"));
+  assert.equal(rebuilt.html, sampleTool.html);
+  assert.equal(rebuilt.settingsSchema[0].default, 2);
   process.stdout.write("Electron tools CLI smoke passed.\n");
 } finally {
   rmSync(root, { force: true, recursive: true });

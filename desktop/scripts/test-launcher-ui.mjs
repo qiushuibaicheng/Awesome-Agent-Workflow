@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sampleTool } from "../src/plugins/tools/ui/sample.ts";
 
 const root = mkdtempSync(join(tmpdir(), "aaw-launcher-ui-"));
 const runtime = fileURLToPath(new URL("../tools-runtime/dist/", import.meta.url));
@@ -13,7 +14,7 @@ try {
   writeFileSync(join(root, "configuration", "preferences.json"), JSON.stringify({
     "aaw-desktop.auth.v1": JSON.stringify({ user: { id: "ui-test" } }),
     "aaw-desktop.personal-tools.v1": JSON.stringify({ "user:ui-test": Array.from({ length: 18 }, (_, index) => ({
-      package: { schemaVersion: 1, id: `test-${index}`, version: "1.0.0", name: `测试工具 ${index}`, html: "<h1>工具运行成功</h1>" },
+      package: { ...sampleTool, id: `test-${index}`, name: `测试工具 ${index}` }, settings: { indent: 4 },
       lastOpened: 100 - index,
     })) }),
   }));
@@ -58,6 +59,12 @@ try {
   await page.getByLabel("搜索功能", { exact: true }).fill("AAW");
   await page.getByRole("button", { name: "AAW 工作流", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("请从 AAW Desktop 打开小窗");
+  await page.getByLabel("搜索功能", { exact: true }).fill("测试工具 0");
+  const opening = app.waitForEvent("window");
+  await page.locator("#results .item").click();
+  const toolWindow = await opening;
+  await toolWindow.locator("#format").click();
+  await expect(toolWindow.locator("#source")).toHaveValue('{\n    "hello": "AAW"\n}');
   process.stdout.write("Electron launcher UI: search, pin, overflow, shortcut conflict and standalone route checks passed.\n");
 } finally {
   await app?.close();

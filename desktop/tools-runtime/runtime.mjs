@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BrowserWindow, protocol, session, screen } from "electron";
+import { toolSettingsScript } from "./package-contract.mjs";
 
 const scheme = "aaw-tool";
 const documents = new Map();
@@ -28,7 +29,7 @@ export function prepareRuntime() {
   return isolated;
 }
 
-export async function loadTool(isolated, tool, visible) {
+export async function loadTool(isolated, tool, visible, settings) {
   const key = randomUUID();
   const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const win = new BrowserWindow({
@@ -41,7 +42,7 @@ export async function loadTool(isolated, tool, visible) {
       spellcheck: false, devTools: false,
     },
   });
-  documents.set(key, tool.html);
+  documents.set(key, toolSettingsScript(tool, settings) + tool.html);
   win.on("closed", () => documents.delete(key));
   win.on("page-title-updated", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -57,10 +58,10 @@ export async function loadTool(isolated, tool, visible) {
   }
 }
 
-export async function executeAction(isolated, tool, action, input) {
+export async function executeAction(isolated, tool, action, input, settings) {
   let timer;
   let win;
-  const loading = loadTool(isolated, tool, false);
+  const loading = loadTool(isolated, tool, false, settings);
   try {
     return await Promise.race([
       loading.then(async (window) => {

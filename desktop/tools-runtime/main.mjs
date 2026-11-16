@@ -42,7 +42,7 @@ function watchDesktop(pid) {
 function installLauncher(root, isolated) {
   const store = createLauncherStore(root);
   const catalog = createLauncherCatalog(root, store, {
-    openTool: (tool) => loadTool(isolated, tool, true), openDesktop: createDesktopBridge(),
+    openTool: (tool, settings) => loadTool(isolated, tool, true, settings), openDesktop: createDesktopBridge(),
   });
   const shortcuts = createShortcutController(globalShortcut, store, () => showLauncher(true));
 

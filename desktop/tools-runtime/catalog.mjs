@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readToolPackage } from "./package-contract.mjs";
+import { readToolPackage, resolveToolSettings } from "./package-contract.mjs";
 
 export function readRecord(path) {
   try {
@@ -35,6 +35,7 @@ export function getCatalog(root) {
     const key = `${owner}/${tool.id}`;
     return [{
       tool,
+      settings: resolveToolSettings(tool, entry.settings),
       lastOpened: Math.max(Number(entry.lastOpened) || 0, Number(recent[key]) || 0),
       touch() {
         mkdirSync(configuration, { recursive: true });
@@ -50,5 +51,5 @@ export function getCatalog(root) {
 }
 
 export function describeTool(tool) {
-  return { id: tool.id, name: tool.name, version: tool.version, actions: tool.actions ?? [] };
+  return { id: tool.id, name: tool.name, version: tool.version, actions: tool.actions ?? [], settingsSchema: tool.settingsSchema ?? [] };
 }

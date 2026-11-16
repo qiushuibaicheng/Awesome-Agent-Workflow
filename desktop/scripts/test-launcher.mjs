@@ -33,7 +33,8 @@ test("catalog isolates account pins, merges recents and routes builtins independ
     assert.equal(catalog.read().entries[0].id, "personal:test-tool");
     catalog.pin("personal:test-tool", true);
     await catalog.open("builtin:aaw");
-    assert.equal(catalog.read().entries[0].id, "builtin:aaw");
+    assert.equal(catalog.read().entries.find((item) => item.id === "builtin:aaw").recent, 0);
+    assert.equal(catalog.read().entries[0].id, "personal:test-tool");
     await catalog.open("personal:test-tool");
     assert.deepEqual(opened, ["aaw", "test-tool"]);
     assert.equal(catalog.read().entries.find((item) => item.id === "personal:test-tool").pinned, true);

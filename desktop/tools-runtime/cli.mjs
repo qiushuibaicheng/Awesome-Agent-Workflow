@@ -22,9 +22,10 @@ export async function runCli(root, isolated, args) {
   const { signedIn, tools } = getCatalog(root);
   if (!signedIn) throw new Error("请在 AAW Desktop 登录后再使用个人工具。");
   if (command === "list") return tools.map(({ tool }) => describeTool(tool));
-  const tool = tools.find((entry) => entry.tool.id === id)?.tool;
+  const entry = tools.find((entry) => entry.tool.id === id);
+  const tool = entry?.tool;
   if (!tool) throw new Error("未找到已安装的工具。");
   if (command === "describe") return describeTool(tool);
   if (!tool.actions?.some((entry) => entry.id === action)) throw new Error("工具未声明该动作。");
-  return executeAction(isolated, tool, action, await readInput(file?.slice(13)));
+  return executeAction(isolated, tool, action, await readInput(file?.slice(13)), entry.settings);
 }

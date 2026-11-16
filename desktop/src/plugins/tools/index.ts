@@ -4,6 +4,7 @@ import { createSnapshotView } from "../../shared/state/readonlySnapshot.ts";
 import type { ToolsService } from "./service.ts";
 import type { PersonalTool } from "./types.ts";
 import { readToolPackage } from "./runtime/package.ts";
+import { resolveToolSettings, validateToolSettings } from "./runtime/settings.ts";
 
 export const name = "tools";
 export const inject = ["account", "configuration"];
@@ -25,6 +26,7 @@ function readTools(value: unknown): readonly PersonalTool[] {
     const lastOpened = fields.lastOpened;
     tools.push({
       package: tool,
+      settings: resolveToolSettings(tool, fields.settings),
       lastOpened: typeof lastOpened === "number" && Number.isFinite(lastOpened) ? lastOpened : undefined,
     });
   }
@@ -68,7 +70,7 @@ export function apply(ctx: Context): void {
         if (previous && !replace) throw new Error("已安装相同 ID 的工具。请在开发模式中更新，或先卸载旧版本。");
         return [
           ...current.filter((entry) => entry.package.id !== tool.id),
-          { package: tool, lastOpened: previous?.lastOpened },
+          { package: tool, lastOpened: previous?.lastOpened, settings: resolveToolSettings(tool, previous?.settings) },
         ];
       });
     },
@@ -79,6 +81,13 @@ export function apply(ctx: Context): void {
     },
     remove(id) {
       update((current) => current.filter((entry) => entry.package.id !== id));
+    },
+    saveSettings(id, values) {
+      update((current) => {
+        if (!current.some((entry) => entry.package.id === id)) throw new Error("插件已卸载。");
+        return current.map((entry) => entry.package.id === id
+          ? { ...entry, settings: validateToolSettings(entry.package, values) } : entry);
+      });
     },
   } satisfies ToolsService);
 

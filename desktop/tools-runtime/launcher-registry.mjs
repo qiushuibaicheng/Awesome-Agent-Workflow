@@ -40,12 +40,12 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
     id: `personal:${entry.tool.id}`, name: entry.tool.name,
     description: `个人工具 · v${entry.tool.version}`, keywords: [entry.tool.id, "工具", "plugin"],
     source: "personal", scope: "personal", icon: "tool", recent: entry.lastOpened,
-    open: async () => { await openTool(entry.tool); entry.touch(); },
+    open: async () => { await openTool(entry.tool, entry.settings); entry.touch(); },
   })));
   registry.register("builtin", () => [
     { id: "builtin:aaw", name: "AAW 工作流", description: "在主窗口打开当前项目的工作流", keywords: ["workflow", "工作流"], icon: "workflow", target: "aaw" },
     { id: "builtin:tools", name: "工具中心", description: "管理、导入和开发个人工具", keywords: ["工具", "插件", "管理", "开发"], icon: "library", target: "tools" },
-  ].map((entry) => ({ ...entry, source: "builtin", scope: "builtin", recent: 0,
+  ].map((entry) => ({ ...entry, source: "builtin", scope: "builtin", recent: 0, trackRecent: false,
     open: () => openDesktop(entry.target),
   })));
   function read() {
@@ -53,7 +53,7 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
     const user = store.read().users?.[owner ?? "guest"] ?? {};
     const pinned = user.pinned ?? ["builtin:aaw", "builtin:tools"];
     return { owner, signedIn, entries: registry.entries().map((entry) => ({ ...entry,
-      recent: Math.max(entry.recent, Number(user.recent?.[entry.id]) || 0), pinned: pinned.includes(entry.id), pinOrder: pinned.indexOf(entry.id),
+      recent: entry.trackRecent === false ? 0 : Math.max(entry.recent, Number(user.recent?.[entry.id]) || 0), pinned: pinned.includes(entry.id), pinOrder: pinned.indexOf(entry.id),
     })).sort((a, b) => b.recent - a.recent || a.name.localeCompare(b.name, "zh-CN")) };
   }
   function updateUser(patch, owner = read().owner) {
@@ -68,7 +68,7 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
       const entry = snapshot.entries.find((item) => item.id === id);
       if (!entry) throw new Error("此功能已移除或当前账号不可用，请重新搜索。");
       await entry.open();
-      updateUser((user) => ({ recent: { ...user.recent, [id]: Date.now() } }), snapshot.owner);
+      if (entry.trackRecent !== false) updateUser((user) => ({ recent: { ...user.recent, [id]: Date.now() } }), snapshot.owner);
     },
     pin(id, pinned) {
       const entries = read().entries;
