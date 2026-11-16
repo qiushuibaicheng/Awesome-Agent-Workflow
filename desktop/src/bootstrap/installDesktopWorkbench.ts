@@ -8,6 +8,7 @@ import * as terminal from "../plugins/terminal/index.ts";
 import * as workflow from "../plugins/workflow/index.ts";
 import * as skills from "../plugins/skills/index.ts";
 import * as account from "../plugins/account/index.ts";
+import * as tools from "../plugins/tools/index.ts";
 import * as updates from "../plugins/updates/index.ts";
 import * as documents from "../plugins/documents/index.ts";
 
@@ -22,6 +23,7 @@ export async function installDesktopWorkbench(context: Context): Promise<void> {
   await workflow.installWorkbench(context);
   await skills.installWorkbench(context);
   await account.installWorkbench(context);
+  await tools.installWorkbench(context);
   await updates.installWorkbench(context);
   await documents.installWorkbench(context);
 }

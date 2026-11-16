@@ -20,6 +20,7 @@ const plugins = [
   "workflow",
   "skills",
   "account",
+  "tools",
   "updates",
 ] as const;
 const uiOwners = [
@@ -32,6 +33,7 @@ const uiOwners = [
   "workflow",
   "skills",
   "account",
+  "tools",
   "updates",
 ] as const;
 const root = resolve(import.meta.dirname, "../..");
@@ -393,7 +395,8 @@ it("keeps the 15 core plugin names and all 82 dependency relations aligned with 
   // protocol.open/release 拉起并收养进标准会话体系，连接与释出同池）
   // − 两条「脚本来源」边（首版 aaw.py 退场：project / workflow 不再从 skills
   // 推导 aaw 脚本路径）。
-  expect(new Set(edges).size).toBe(82);
+  // 个人工具新增两条服务依赖和一条 UI 注册。
+  expect(new Set(edges).size).toBe(85);
   expect(edges.sort()).toEqual([...required, ...weak].sort());
 
   const runtime = createTestDesktopRuntime(
@@ -429,6 +432,7 @@ it("keeps the 15 core plugin names and all 82 dependency relations aligned with 
       "file",
       "files",
       "git",
+      "tools",
     ]);
     expect(view.settings.map(({ id }) => id).sort()).toEqual([
       "agents",
