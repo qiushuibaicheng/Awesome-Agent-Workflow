@@ -46,7 +46,7 @@ export function getCatalog(root) {
     }];
   });
   tools.sort((a, b) => b.lastOpened - a.lastOpened || a.tool.name.localeCompare(b.tool.name, "zh-CN"));
-  return { signedIn: true, tools };
+  return { signedIn: true, owner, tools };
 }
 
 export function describeTool(tool) {

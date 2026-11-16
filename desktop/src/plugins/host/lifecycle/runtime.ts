@@ -29,6 +29,16 @@ export class DesktopHost implements HostService {
   private bridge?: ReturnType<typeof createBridgeAcpClient>;
   readonly storage = webviewStorage;
   readonly diagnostics = diagnosticsHost;
+  readonly listenLauncher: HostService["listenLauncher"] = (open) => this.resources.listen(async () => {
+    if (!isTauriEnv()) return () => {};
+    const { listen } = await import("@tauri-apps/api/event");
+    return listen<{ requestId: string; target: string }>("aaw://launcher-open", (event) => {
+      let error: string | undefined;
+      try { if (!this.resources.isActive()) throw new Error("主窗口正在关闭。"); open(event.payload.target); }
+      catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+      void this.invoke("launcher_reply", { requestId: event.payload.requestId, error }).catch(() => {});
+    });
+  });
   readonly openToolsElectron: HostService["openToolsElectron"] = (toolId) =>
     this.resources.run(async () => {
       await flushNativeConfiguration();

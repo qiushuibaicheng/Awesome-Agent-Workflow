@@ -2,18 +2,18 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, screen
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { defaultRoot, getCatalog, describeTool } from "./catalog.mjs";
+import { defaultRoot } from "./catalog.mjs";
+import { createLauncherCatalog, createLauncherStore, createShortcutController } from "./launcher-registry.mjs";
+import { createDesktopBridge } from "./desktop-bridge.mjs";
 import { prepareRuntime, loadTool } from "./runtime.mjs";
 import { runCli } from "./cli.mjs";
 
 const args = process.argv.slice(1);
 const cliMarker = args.indexOf("--aaw-cli");
-const shortcut = process.env.AAW_TOOLS_SHORTCUT || "CommandOrControl+Alt+Space";
 const launcherFile = join(import.meta.dirname, "launcher.html");
 const launcherUrl = pathToFileURL(launcherFile).href;
 let launcher;
 let tray;
-let shortcutReady = false;
 let parentTimer;
 
 function request() {
@@ -39,47 +39,27 @@ function watchDesktop(pid) {
 }
 
 function installLauncher(root, isolated) {
-  // 注册项拥有各自的打开方式。后续内置功能通过新来源接入相同列表。
-  const providers = [() => {
-    const { signedIn, tools } = getCatalog(root);
-    return {
-      signedIn,
-      entries: tools.map((entry) => ({
-        ...describeTool(entry.tool),
-        id: `personal:${entry.tool.id}`,
-        recent: entry.lastOpened,
-        open: async () => {
-          await loadTool(isolated, entry.tool, true);
-          entry.touch();
-        },
-      })),
-    };
-  }];
-  const readEntries = () => {
-    const catalogs = providers.map((provide) => provide());
-    return {
-      signedIn: catalogs.some((catalog) => catalog.signedIn),
-      entries: catalogs.flatMap((catalog) => catalog.entries).sort((a, b) => b.recent - a.recent),
-    };
-  };
+  const store = createLauncherStore(root);
+  const catalog = createLauncherCatalog(root, store, {
+    openTool: (tool) => loadTool(isolated, tool, true), openDesktop: createDesktopBridge(),
+  });
+  const shortcuts = createShortcutController(globalShortcut, store, () => showLauncher(true));
 
   async function open(id) {
-    const entry = readEntries().entries.find((item) => item.id === id);
-    if (!entry) throw new Error("工具已卸载，或当前账号无法使用该工具。");
-    await entry.open();
+    await catalog.open(id);
     launcher?.hide();
   }
 
-  function showLauncher() {
-    if (launcher?.isVisible()) {
+  function showLauncher(toggle = false) {
+    if (toggle && launcher?.isVisible()) {
       launcher.hide();
       return;
     }
     if (!launcher) {
       launcher = new BrowserWindow({
-        show: false, width: 570, height: 490, resizable: false,
+        show: false, width: 860, height: 410, resizable: false,
         frame: false, alwaysOnTop: true, skipTaskbar: true,
-        roundedCorners: true, backgroundColor: "#141a25",
+        roundedCorners: true, backgroundColor: "#f7f8fa",
         webPreferences: {
           preload: join(import.meta.dirname, "preload.cjs"),
           sandbox: true, nodeIntegration: false, contextIsolation: true,
@@ -90,15 +70,19 @@ function installLauncher(root, isolated) {
       launcher.on("blur", () => launcher?.hide());
       launcher.on("closed", () => { launcher = undefined; });
       launcher.once("ready-to-show", () => showLauncher());
-      void launcher.loadFile(launcherFile).catch((error) => dialog.showErrorBox("AAW 工具", error.message));
+      void launcher.loadFile(launcherFile).catch((error) => dialog.showErrorBox("AAW 启动器", error.message));
       return;
     }
     const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    const [width, height] = launcher.getSize();
-    launcher.setPosition(
-      Math.round(workArea.x + Math.max(0, (workArea.width - width) / 2)),
-      Math.round(workArea.y + Math.max(0, (workArea.height - height) / 3)),
-    );
+    const width = Math.min(860, workArea.width - 24);
+    const height = Math.min(410, workArea.height - 24);
+    // Windows locks non-resizable bounds; briefly release them for display/DPI changes.
+    launcher.setResizable(true);
+    launcher.setBounds({ width, height,
+      x: Math.round(workArea.x + (workArea.width - width) / 2),
+      y: Math.round(workArea.y + (workArea.height - height) / 3),
+    });
+    launcher.setResizable(false);
     launcher.show();
     launcher.focus();
     launcher.webContents.send("tools:refresh");
@@ -111,8 +95,11 @@ function installLauncher(root, isolated) {
 
   ipcMain.handle("tools:list", (event) => {
     verifySender(event);
-    const { entries, signedIn } = readEntries();
-    return { entries: entries.map(({ id, name, version, actions, recent }) => ({ id, name, version, actions, recent })), signedIn, shortcut, shortcutReady };
+    const { entries, signedIn } = catalog.read();
+    return { entries: entries.map((entry) => {
+      const { id, name, description, keywords, source, scope, icon, recent, pinned, pinOrder } = entry;
+      return { id, name, description, keywords, source, scope, icon, recent, pinned, pinOrder };
+    }), signedIn, ...shortcuts.state };
   });
   ipcMain.handle("tools:open", async (event, id) => {
     verifySender(event);
@@ -123,16 +110,29 @@ function installLauncher(root, isolated) {
     if (event.sender === launcher?.webContents && event.senderFrame?.url === launcherUrl) launcher.hide();
   });
 
-  try { shortcutReady = globalShortcut.register(shortcut, showLauncher); }
-  catch { shortcutReady = false; }
+  ipcMain.handle("launcher:pin", (event, id, pinned) => {
+    verifySender(event);
+    catalog.pin(id, pinned);
+  });
+  ipcMain.handle("launcher:shortcut", (event, value) => {
+    verifySender(event);
+    shortcuts.change(value);
+    updateTray();
+    return shortcuts.state;
+  });
+
+  shortcuts.start();
   tray = new Tray(join(import.meta.dirname, "icon.png"));
-  tray.setToolTip(shortcutReady ? `AAW 工具 · ${shortcut}` : "AAW 工具 · 快捷键不可用");
+  function updateTray() {
+    tray.setToolTip(shortcuts.state.shortcutReady ? `AAW 启动器 · ${shortcuts.state.shortcut}` : "AAW 启动器 · 请设置快捷键");
+  }
+  updateTray();
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "打开工具小窗", click: showLauncher },
+    { label: "打开 AAW 启动器", click: () => showLauncher() },
     { type: "separator" },
     { label: "退出工具宿主", click: () => app.quit() },
   ]));
-  tray.on("click", showLauncher);
+  tray.on("click", () => showLauncher());
 
   return (intent) => {
     watchDesktop(intent?.parent);
@@ -142,7 +142,7 @@ function installLauncher(root, isolated) {
   };
 }
 
-app.setName("AAW 工具");
+app.setName("AAW 启动器");
 if (process.env.AAW_TOOLS_HOST_PROFILE)
   app.setPath("userData", process.env.AAW_TOOLS_HOST_PROFILE);
 else if (cliMarker >= 0) {

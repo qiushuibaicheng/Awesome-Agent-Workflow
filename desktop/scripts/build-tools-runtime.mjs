@@ -21,7 +21,7 @@ const resources = process.platform === "darwin"
   : join(staged, "resources");
 const appDir = join(resources, "app");
 mkdirSync(appDir, { recursive: true });
-for (const name of ["package.json", "main.mjs", "runtime.mjs", "catalog.mjs", "cli.mjs", "preload.cjs", "launcher.html", "launcher.css", "launcher.js"])
+for (const name of ["package.json", "main.mjs", "runtime.mjs", "catalog.mjs", "launcher-registry.mjs", "desktop-bridge.mjs", "cli.mjs", "preload.cjs", "launcher.html", "launcher.css", "launcher.js"])
   cpSync(join(source, name), join(appDir, name));
 cpSync(join(desktop, "src-tauri", "icons", "32x32.png"), join(appDir, "icon.png"));
 await build({

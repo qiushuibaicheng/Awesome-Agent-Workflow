@@ -2,27 +2,38 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
-  <title>AAW 工具</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AAW 启动器</title>
   <link rel="stylesheet" href="launcher.css">
   <script src="launcher.js" defer></script>
 </head>
 <body>
   <header>
-    <div class="mark" aria-hidden="true">✦</div>
-    <div><h1>工具</h1><p>快速打开个人工具</p></div>
-    <button id="close" aria-label="隐藏小窗"><kbd>Esc</kbd></button>
+    <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="query" aria-label="搜索功能" placeholder="搜索功能、工具与工作流" autocomplete="off"></label>
+    <button id="settings-open" class="brand" title="启动器设置" aria-label="启动器设置">A<span>✦</span></button>
   </header>
-  <main>
-    <label class="search">
-      <span aria-hidden="true">⌕</span>
-      <input id="query" aria-label="搜索工具" placeholder="搜索工具名称或标识…" autocomplete="off">
-    </label>
-    <div class="section-label"><span id="caption">最近使用</span><span id="count"></span></div>
-    <ul id="results" aria-label="工具列表"></ul>
-    <p id="message" role="status" hidden></p>
+  <main id="content">
+    <section aria-labelledby="caption">
+      <div class="section-label"><h2 id="caption">最近使用</h2><button id="expand">展开</button></div>
+      <ul id="results" class="grid" aria-label="最近使用"></ul>
+      <p id="empty" class="empty" hidden></p>
+    </section>
+    <section id="pinned-section" aria-labelledby="pinned-title">
+      <div class="section-label"><h2 id="pinned-title">已固定</h2><button id="all">全部功能 <span aria-hidden="true">›</span></button></div>
+      <ul id="pinned" class="grid" aria-label="已固定功能"></ul>
+      <p id="pin-empty" class="empty" hidden>在全部功能中点击星标，将常用功能固定在这里。</p>
+    </section>
   </main>
-  <footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>↵</kbd> 打开</span><span id="shortcut"></span></footer>
+  <section id="settings" aria-label="启动器设置" hidden>
+    <div class="section-label"><h2>启动器设置</h2><button id="settings-close">返回</button></div>
+    <label for="accelerator">全局唤起快捷键</label>
+    <p>在任何窗口快速打开 AAW。默认 Alt + Space。</p>
+    <form id="shortcut-form"><input id="accelerator" aria-label="全局唤起快捷键" placeholder="Alt+Space" autocomplete="off" spellcheck="false"><button class="primary" type="submit">保存快捷键</button><button type="button" id="reset-shortcut">恢复默认</button></form>
+    <p>输入组合键名称，例如 Ctrl+Shift+Space。若被其他应用占用，会保留原快捷键。</p>
+  </section>
+  <p id="message" role="status" hidden></p>
+  <footer><span><kbd>↑ ↓ ← →</kbd> 选择 <kbd>Enter</kbd> 打开 <button id="close"><kbd>Esc</kbd> 收起</button></span><button id="shortcut" title="更改快捷键"></button></footer>
 </body>
 </html>
