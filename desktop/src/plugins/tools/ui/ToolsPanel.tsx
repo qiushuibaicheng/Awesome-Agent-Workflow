@@ -7,6 +7,7 @@ import type { HostService } from "../../host/service.ts";
 import { parseToolPackage } from "../runtime/package.ts";
 import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
 import { toolSettingsScript } from "../runtime/settings.ts";
+import { ToolDeveloper } from "./ToolDeveloper.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
 import type { ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
@@ -70,13 +71,15 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   }
 
   async function exportTool(tool: ToolPackage) {
+    if (busy) return;
+    setBusy(true);
     setFeedback(undefined);
     const filename = `${tool.id}-${tool.version}-source.zip`;
     try {
       const bytes = exportToolProject(tool);
       if (host.isNative()) {
         const path = await host.dialogs.saveFile({ defaultPath: filename, filters: [{ name: "插件源码项目", extensions: ["zip"] }] });
-        if (!path) return;
+        if (!path) { setFeedback({ text: "已取消导出。" }); return; }
         await host.writeToolArchive(path, bytes);
       } else {
         const url = URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: "application/zip" }));
@@ -88,8 +91,8 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
       }
       setFeedback({ text: "插件源码已导出为 ZIP。" });
     } catch (error) {
-      setFeedback({ text: errorText(error), error: true });
-    }
+      setFeedback({ text: `导出失败：${errorText(error)}`, error: true });
+    } finally { setBusy(false); }
   }
 
   function edit(tool: ToolPackage) {
@@ -138,7 +141,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
       <header className="tools-header border-b border-line px-4 pb-3 pt-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
-          <div className="mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">把灵感变成随手可用的工具</p></div>
+          <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">把灵感变成随手可用的工具</p></div>
           {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
           <button type="button" className={btnPrimary} onClick={() => picker.current?.click()}>导入工具</button>
         </div>
@@ -154,22 +157,12 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
             {feedback.text}
           </p>
         )}
-        {development && (
-          <section aria-label="开发模式" className="space-y-3 rounded-xl border border-line bg-surface p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="personal-tool-source" className="mr-auto text-ui-base font-semibold text-ink">工具包源码</label>
-              <button type="button" className={btnGhost} onClick={() => edit(sampleTool)}>载入 JSON 格式化示例</button>
-            </div>
-            <textarea id="personal-tool-source" className="min-h-48 w-full rounded-lg border border-line bg-base p-3 font-mono text-ui-sm leading-relaxed text-ink focus-visible:outline-2 focus-visible:outline-info" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="粘贴 .aaw-tool.json 源码" spellCheck={false} />
-            <div className="flex flex-wrap gap-2">
-              <button type="button" className={btnSecondary} disabled={!draft.trim()} onClick={() => run(() => setView({ kind: "preview", tool: parseToolPackage(draft) }))}>运行预览</button>
-              <button type="button" className={btnPrimary} disabled={!draft.trim()} onClick={() => run(() => {
-                service.install(parseToolPackage(draft), true);
-                setFeedback({ text: "工具已安装或更新。" });
-              })}>安装或更新</button>
-            </div>
-          </section>
-        )}
+        {development && <ToolDeveloper source={draft} onChange={setDraft} onExample={() => edit(sampleTool)}
+          onPreview={() => run(() => setView({ kind: "preview", tool: parseToolPackage(draft) }))}
+          onInstall={() => run(() => {
+            service.install(parseToolPackage(draft), true);
+            setFeedback({ text: "工具已安装或更新。" });
+          })} />}
         {tools.length === 0 && !development && (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line-strong px-5 py-10 text-center">
             <WrenchIcon className="size-7 text-info" />
@@ -204,7 +197,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
                   <button type="button" className={btnPrimary} aria-label={`打开 ${tool.name}`} disabled={busy} onClick={() => void openElectron(tool.id)}>打开 ↗</button>
                   <button type="button" className={btnSecondary} aria-label={`管理 ${tool.name}`} onClick={() => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); }}>管理</button>
                   {development && <button type="button" className={btnGhost} onClick={() => edit(tool)}>编辑</button>}
-                  <button type="button" className={btnGhost} data-hint="导出插件项目源码 ZIP" onClick={() => void exportTool(tool)}>导出</button>
+                  <button type="button" className={btnGhost} data-hint="导出插件项目源码 ZIP" disabled={busy} onClick={() => void exportTool(tool)}>导出</button>
                   <button type="button" className={btnGhost} onClick={() => setRemoving(tool.id)}>卸载</button>
                 </div>
               )}

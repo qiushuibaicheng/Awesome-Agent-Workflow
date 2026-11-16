@@ -30,6 +30,13 @@ it("opens Electron directly, routes Manage separately, saves settings and export
   expect(exported.settingsSchema?.[0]?.default).toBe(2);
   expect(exported).not.toHaveProperty("settings");
   expect(exported.html).toBe(sampleTool.html);
+  vi.mocked(host.dialogs.saveFile).mockResolvedValueOnce(null);
+  fireEvent.click(screen.getByRole("button", { name: "导出源码 ZIP" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已取消导出"));
+  expect(write).toHaveBeenCalledTimes(1);
+  write.mockRejectedValueOnce(new Error("磁盘无法写入"));
+  fireEvent.click(screen.getByRole("button", { name: "导出源码 ZIP" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("导出失败：磁盘无法写入"));
   fireEvent.click(screen.getByRole("button", { name: "卸载" }));
   expect(service.remove).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));

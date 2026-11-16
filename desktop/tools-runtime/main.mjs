@@ -58,7 +58,7 @@ function installLauncher(root, isolated) {
     }
     if (!launcher) {
       launcher = new BrowserWindow({
-        show: false, width: 860, height: 410, resizable: false,
+        show: false, width: 800, height: 360, resizable: false,
         frame: false, alwaysOnTop: true, skipTaskbar: true,
         roundedCorners: true, backgroundColor: "#f7f8fa",
         webPreferences: {
@@ -75,8 +75,8 @@ function installLauncher(root, isolated) {
       return;
     }
     const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    const width = Math.min(860, workArea.width - 24);
-    const height = Math.min(410, workArea.height - 24);
+    const width = Math.min(800, workArea.width - 24);
+    const height = Math.min(360, workArea.height - 24);
     // Windows locks non-resizable bounds; briefly release them for display/DPI changes.
     launcher.setResizable(true);
     launcher.setBounds({ width, height,

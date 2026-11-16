@@ -23,6 +23,8 @@ try {
   } });
   const page = await app.firstWindow();
   await expect(page.getByRole("heading", { name: "最近使用" })).toBeVisible();
+  await expect(page.getByLabel("搜索功能", { exact: true })).toHaveCSS("font-size", "17px");
+  await page.screenshot({ path: "node_modules/.cache/launcher-compact.png" });
   await page.getByRole("button", { name: "全部功能", exact: true }).click();
   await expect(page.locator("#results .item")).toHaveCount(20);
   await page.getByLabel("搜索功能", { exact: true }).fill("测试工具 17");
@@ -33,7 +35,7 @@ try {
   await expect(page.locator("#pinned .item")).toHaveCount(3);
   await page.getByRole("button", { name: "展开 (18)", exact: true }).click();
   await expect(page.locator("#results .item")).toHaveCount(18);
-  for (const [width, height] of [[860, 410], [360, 300]]) {
+  for (const [width, height] of [[800, 360], [360, 300]]) {
     await app.evaluate(({ BrowserWindow }, size) => {
       const window = BrowserWindow.getAllWindows()[0];
       window.setResizable(true);

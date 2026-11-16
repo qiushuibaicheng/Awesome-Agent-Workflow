@@ -61,7 +61,7 @@ function render() {
   const searching = Boolean(term) || showAll;
   const matches = entries.filter((entry) => `${entry.name} ${entry.keywords.join(" ")}`.toLowerCase().includes(term));
   const recent = matches.filter((entry) => entry.recent > 0);
-  const columns = Math.max(1, Math.floor(($("results").clientWidth + 4) / (window.innerWidth <= 580 ? 82 : 92)));
+  const columns = Math.max(1, window.getComputedStyle($("results")).gridTemplateColumns.split(" ").filter(Boolean).length);
   const shown = searching ? matches : expanded ? recent : recent.slice(0, columns);
   $("caption").textContent = term ? `搜索结果 · ${matches.length}` : showAll ? `全部功能 · ${matches.length}` : "最近使用";
   $("results").setAttribute("aria-label", $("caption").textContent);

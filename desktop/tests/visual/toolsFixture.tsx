@@ -23,5 +23,5 @@ const service: ToolsService = {
   state, install: () => {}, open: () => {}, remove: () => {},
   saveSettings: (id, values) => state.setState(state.getState().map((entry) => entry.package.id === id ? { ...entry, settings: resolveToolSettings(entry.package, values) } : entry), true),
 };
-const host = { isNative: () => true, openToolsElectron: async () => {} } as unknown as HostService;
+const host = { isNative: () => !new URLSearchParams(location.search).has("web"), openToolsElectron: async () => {} } as unknown as HostService;
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh" }}><ToolsPanel service={service} host={host} /></main>);
