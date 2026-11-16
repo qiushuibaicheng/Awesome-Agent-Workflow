@@ -1,5 +1,6 @@
 import type { Context } from "cordis";
 import { createStore } from "zustand";
+import { createSnapshotView } from "../../shared/state/readonlySnapshot.ts";
 import type { ToolsService } from "./service.ts";
 import type { PersonalTool } from "./types.ts";
 import { readToolPackage } from "./runtime/package.ts";
@@ -42,10 +43,17 @@ export function apply(ctx: Context): void {
   };
   function readCurrent() {
     const key = userKey();
-    return key ? readTools(scope.read()?.[key]) : [];
+    if (!key) return [];
+    try {
+      return readTools(scope.read()?.[key]);
+    } catch (error) {
+      if (error instanceof SyntaxError) return [];
+      throw error;
+    }
   }
 
   const store = createStore<readonly PersonalTool[]>(readCurrent);
+  const view = createSnapshotView(store, (tools) => tools);
   function update(transform: (current: readonly PersonalTool[]) => readonly PersonalTool[]) {
     const key = userKey();
     if (!key) throw new Error("请先登录 AAW。");
@@ -53,7 +61,7 @@ export function apply(ctx: Context): void {
   }
 
   ctx.provide(name, {
-    state: store,
+    state: view.snapshot,
     install(tool, replace = false) {
       update((current) => {
         const previous = current.find((entry) => entry.package.id === tool.id);
@@ -82,7 +90,8 @@ export function apply(ctx: Context): void {
     return () => {
       offConfig();
       offState();
+      view.dispose();
       scope.dispose();
     };
-  }, "tools:configuration");
+  }, "tools:resources");
 }
