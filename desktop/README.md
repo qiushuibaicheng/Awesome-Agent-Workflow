@@ -12,6 +12,8 @@
 
 文档批注的操作与恢复说明见 [文档批注](docs/features/document-annotations.md)。
 
+个人 JavaScript 工具的开发、预览和导入导出见 [个人工具开发手册](docs/features/personal-tools.md)。
+
 ## 常用命令
 
 | 命令                              | 作用                                      |
