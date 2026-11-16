@@ -22,6 +22,7 @@ import { errorLine } from "../status/errorText.ts";
 import { pathKey } from "../../../shared/panelPaths.ts";
 import { WorkflowIcon } from "../../../shared/ui/icons.tsx";
 import type { ProjectService } from "../../project/service.ts";
+import { prepareProjectLauncher } from "../../project/service.ts";
 import type { WorkflowExecutors, WorkflowDraftEditor, WorkflowFileTransfer,
   RunSessionLinks,
   WorkflowEntryCommand,
@@ -98,6 +99,7 @@ export function createWorkflowWorkbench(
   transfer?: WorkflowFileTransfer,
   editor?: WorkflowDraftEditor,
   executors?: WorkflowExecutors,
+  prepareGlobalOpen?: () => Promise<string | null>,
 ) {
   let disposed = false;
   const active = () => !disposed && workflow.isActive() && workbench.navigationGuard.isActive();
@@ -216,6 +218,7 @@ export function createWorkflowWorkbench(
       searchHint: "aaw workflow",
       Icon: WorkflowIcon,
       open: (projectPath) => show(projectPath),
+      prepareGlobalOpen,
     },
     View: function WorkflowPanelView({ visible, project: projectPath }: PanelViewProps) {
       return (
@@ -291,7 +294,7 @@ export function apply(ctx: Context): void {
     defaultName: () => agents.resolve()?.displayName ?? "当前 Agent",
     read: (workflowId) => readWorkflowExecutors(host.storage, workflowId),
     write: (workflowId, plan) => writeWorkflowExecutors(host.storage, workflowId, plan),
-  });
+  }, () => prepareProjectLauncher(project, workbench, host, true));
   ctx.effect(() => () => ui.dispose(), "workflow:resources");
   ctx.effect(() => {
     // 工作区作用域：只在当前项目路径真的变化时重绑引擎请求作用域（run

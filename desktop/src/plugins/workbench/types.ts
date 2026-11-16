@@ -138,6 +138,8 @@ export interface WorkbenchLauncher {
 }
 
 export interface PanelLauncher extends WorkbenchLauncher {
+  /** Global launchers may establish their own workspace/session before navigation. */
+  prepareGlobalOpen?(): Promise<string | null>;
   readonly searchHint?: string;
   readonly hideWhenOpen?: boolean;
   open?(project: string): void;

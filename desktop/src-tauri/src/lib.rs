@@ -57,6 +57,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             tools_runtime::tools_open_electron,
+            tools_runtime::tools_write_archive,
             tools_runtime::launcher_reply,
             codeagent_history::agent_history_evidence,
             usage_statistics::usage_initialize,

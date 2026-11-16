@@ -1,3 +1,4 @@
+use base64::Engine;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -7,6 +8,27 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
+
+#[tauri::command]
+pub fn tools_write_archive(
+    window: tauri::WebviewWindow,
+    path: String,
+    contents: String,
+) -> Result<(), String> {
+    if window.label() != "main" || contents.len() > 1_398_104 {
+        return Err("无效的源码导出请求。".into());
+    }
+    if !path.to_lowercase().ends_with(".zip") {
+        return Err("请选择 .zip 文件名。".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(contents)
+        .map_err(|_| "无效的 ZIP 数据。")?;
+    if bytes.len() > 1024 * 1024 || !bytes.starts_with(b"PK\x03\x04") {
+        return Err("无效的 ZIP 数据。".into());
+    }
+    std::fs::write(&path, bytes).map_err(|error| format!("导出失败：{error}"))
+}
 
 #[derive(Default)]
 pub struct LauncherRoutes {
@@ -100,7 +122,7 @@ fn bridge(app: &AppHandle) -> Result<(u16, String), String> {
                 Some("主窗口不可用。".to_owned())
             } else {
                 receiver
-                    .recv_timeout(Duration::from_secs(3))
+                    .recv_timeout(Duration::from_secs(120))
                     .unwrap_or(Some("主窗口尚未就绪，请稍后重试。".to_owned()))
             };
             if let Ok(mut pending) = app.state::<LauncherRoutes>().pending.lock() {

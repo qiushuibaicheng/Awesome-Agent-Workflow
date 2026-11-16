@@ -20,7 +20,7 @@ export function createDesktopBridge() {
         if (error) reject(error); else resolve();
       }
       socket.setEncoding("utf8");
-      socket.setTimeout(4500, () => finish(new Error("主窗口未响应，请重新打开 AAW。")));
+      socket.setTimeout(125000, () => finish(new Error("项目选择等待超时，请再次打开此功能。")));
       socket.on("error", () => finish(new Error("主窗口连接已断开，请重启 AAW。")));
       socket.on("end", () => finish(new Error("主窗口连接已断开，请重试。")));
       socket.on("connect", () => socket.write(JSON.stringify({ token, requestId, target }) + "\n"));

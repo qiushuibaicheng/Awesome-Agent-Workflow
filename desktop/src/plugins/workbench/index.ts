@@ -65,7 +65,7 @@ export function apply(
     let stop: (() => void) | undefined;
     void ctx.host.listenLauncher((target) => {
       if (!active) throw new Error("工作台正在关闭。");
-      openLauncherPanel(workbench.service, target);
+      return openLauncherPanel(workbench.service, target);
     }).then((dispose) => { if (active) stop = dispose; else dispose(); }).catch((error: unknown) => logger.warn("launcher-listener", { error: String(error) }));
     return () => { active = false; stop?.(); };
   }, "workbench:launcher");

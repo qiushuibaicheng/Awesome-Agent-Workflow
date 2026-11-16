@@ -4,14 +4,16 @@ import { useStore } from "zustand";
 import { btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
 import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
 import type { HostService } from "../../host/service.ts";
-import { parseToolPackage, toolPackageLimit } from "../runtime/package.ts";
+import { parseToolPackage } from "../runtime/package.ts";
+import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
+import { toolSettingsScript } from "../runtime/settings.ts";
+import { ToolManagement } from "./ToolManagement.tsx";
 import type { ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
 import { sampleTool } from "./sample.ts";
 import "./tools.css";
 
-type View = { kind: "library" } | { kind: "installed"; id: string } | { kind: "preview"; tool: ToolPackage };
-const packageText = (tool: ToolPackage) => JSON.stringify(tool);
+type View = { kind: "library" } | { kind: "manage"; id: string } | { kind: "preview"; tool: ToolPackage };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const framePolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'";
 
@@ -23,10 +25,10 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   const [draft, setDraft] = useState("");
   const [removing, setRemoving] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; error?: true }>();
+  const [busy, setBusy] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
-  const active = view.kind === "preview" ? view.tool : view.kind === "installed"
-    ? tools.find(({ package: tool }) => tool.id === view.id)?.package
-    : undefined;
+  const active = view.kind === "preview" ? view.tool : undefined;
+  const managed = view.kind === "manage" ? tools.find(({ package: tool }) => tool.id === view.id) : undefined;
 
   function run(action: () => void) {
     setFeedback(undefined);
@@ -38,12 +40,15 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   }
 
   async function openElectron(id?: string) {
+    if (busy) return;
+    setBusy(true);
     setFeedback(undefined);
     try {
+      if (!host.isNative()) throw new Error("请在 AAW 桌面版中打开 Electron 插件窗口。");
       await host.openToolsElectron(id);
     } catch (error) {
       setFeedback({ text: errorText(error), error: true });
-    }
+    } finally { setBusy(false); }
   }
 
   async function importFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -54,8 +59,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
     let installed = 0;
     for (const file of files) {
       try {
-        if (file.size > toolPackageLimit) throw new Error("工具包不能超过 512 KB。");
-        service.install(parseToolPackage(await file.text()));
+        service.install(await readToolImport(file));
         installed++;
       } catch (error) {
         failures.push(`${file.name}：${errorText(error)}`);
@@ -67,21 +71,22 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
 
   async function exportTool(tool: ToolPackage) {
     setFeedback(undefined);
-    const filename = `${tool.id}-${tool.version}.aaw-tool.json`;
+    const filename = `${tool.id}-${tool.version}-source.zip`;
     try {
+      const bytes = exportToolProject(tool);
       if (host.isNative()) {
-        const path = await host.dialogs.saveFile({ defaultPath: filename, filters: [{ name: "AAW 工具包", extensions: ["json"] }] });
+        const path = await host.dialogs.saveFile({ defaultPath: filename, filters: [{ name: "插件源码项目", extensions: ["zip"] }] });
         if (!path) return;
-        await host.skills.writeTextFile(path, packageText(tool));
+        await host.writeToolArchive(path, bytes);
       } else {
-        const url = URL.createObjectURL(new Blob([packageText(tool)], { type: "application/json" }));
+        const url = URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: "application/zip" }));
         const link = document.createElement("a");
         link.href = url;
         link.download = filename;
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-      setFeedback({ text: "工具包已导出。" });
+      setFeedback({ text: "插件源码已导出为 ZIP。" });
     } catch (error) {
       setFeedback({ text: errorText(error), error: true });
     }
@@ -91,19 +96,29 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
     setDraft(JSON.stringify(tool, null, 2));
     setDevelopment(true);
     setFeedback(undefined);
+    setView({ kind: "library" });
   }
 
+  if (managed) return <ToolManagement key={`${managed.package.id}:${JSON.stringify(managed.settings)}:${JSON.stringify(managed.package.settingsSchema)}`} entry={managed} busy={busy} feedback={feedback}
+    onBack={() => { setView({ kind: "library" }); setFeedback(undefined); }}
+    onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)} onEdit={() => edit(managed.package)}
+    onSave={(values) => { try { service.saveSettings(managed.package.id, values); setFeedback({ text: "设置已保存，重新打开插件后生效。" }); return true; } catch (error) { setFeedback({ text: errorText(error), error: true }); return false; } }}
+    onRemove={() => run(() => { service.remove(managed.package.id); setView({ kind: "library" }); })}
+    onUpdate={(file) => { void (async () => { try {
+      const tool = await readToolImport(file);
+      if (tool.id !== managed.package.id) throw new Error("更新包的插件 ID 必须与当前插件一致。");
+      service.install(tool, true); setFeedback({ text: "插件源码已更新，重新打开插件后生效。" });
+    } catch (error) { setFeedback({ text: errorText(error), error: true }); } })(); }} />;
+
   if (active) {
-    const preview = view.kind === "preview";
     return (
       <section aria-label={active.name} className="aaw-tools flex h-full min-h-0 flex-col bg-base">
         <header className="flex flex-wrap items-center gap-2 border-b border-line bg-surface/60 px-4 py-3">
           <button type="button" className={btnGhost} onClick={() => setView({ kind: "library" })}>
-            {preview ? "返回开发模式" : "返回工具列表"}
+            返回开发模式
           </button>
           <h2 className="min-w-0 truncate text-ui-lg font-semibold text-ink">{active.name}</h2>
-          {preview && <span className="text-ui-sm text-ink-subtle">开发预览</span>}
-          {!preview && host.isNative() && <button type="button" className={`${btnSecondary} ml-auto`} onClick={() => void openElectron(active.id)}>在 Electron 打开</button>}
+          <span className="text-ui-sm text-ink-subtle">开发预览</span>
         </header>
         {feedback?.error && <p role="alert" className="border-b border-line px-4 py-2 text-ui-sm text-danger-ink">{feedback.text}</p>}
         <iframe
@@ -111,7 +126,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
           aria-label={active.name}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          srcDoc={`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${framePolicy}">${active.html}`}
+          srcDoc={`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${framePolicy}">${toolSettingsScript(active)}${active.html}`}
           className="min-h-0 w-full flex-1 border-0"
         />
       </section>
@@ -131,7 +146,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
           <button type="button" className={development ? btnGhost : btnSecondary} aria-pressed={!development} onClick={() => setDevelopment(false)}>已安装 · {tools.length}</button>
           <button type="button" className={development ? btnSecondary : btnGhost} aria-pressed={development} onClick={() => setDevelopment(true)}>开发模式</button>
         </div>
-        <input ref={picker} type="file" multiple accept=".json,application/json" onChange={(event) => void importFiles(event)} hidden />
+        <input ref={picker} type="file" multiple accept=".zip,.json,application/zip,application/json" onChange={(event) => void importFiles(event)} hidden />
       </header>
       <div className="tools-content min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {feedback && (
@@ -186,12 +201,10 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
                 </div>
               ) : (
                 <div className="tool-actions flex flex-wrap gap-1">
-                  <button type="button" className={btnPrimary} aria-label={`打开 ${tool.name}`} onClick={() => run(() => {
-                    service.open(tool.id);
-                    setView({ kind: "installed", id: tool.id });
-                  })}>打开</button>
+                  <button type="button" className={btnPrimary} aria-label={`打开 ${tool.name}`} disabled={busy} onClick={() => void openElectron(tool.id)}>打开 ↗</button>
+                  <button type="button" className={btnSecondary} aria-label={`管理 ${tool.name}`} onClick={() => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); }}>管理</button>
                   {development && <button type="button" className={btnGhost} onClick={() => edit(tool)}>编辑</button>}
-                  <button type="button" className={btnGhost} onClick={() => void exportTool(tool)}>导出</button>
+                  <button type="button" className={btnGhost} data-hint="导出插件项目源码 ZIP" onClick={() => void exportTool(tool)}>导出</button>
                   <button type="button" className={btnGhost} onClick={() => setRemoving(tool.id)}>卸载</button>
                 </div>
               )}

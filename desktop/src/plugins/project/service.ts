@@ -1,4 +1,5 @@
 export { projectOverviewPageId } from "./workspace/pageIds.ts";
+export { prepareProjectLauncher } from "./workspace/launcherContext.ts";
 import type { ForegroundSessionListener } from "./events.ts";
 import type {
   WorkspaceHealthCheck,

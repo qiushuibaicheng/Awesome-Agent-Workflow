@@ -29,14 +29,17 @@ test("catalog isolates account pins, merges recents and routes builtins independ
     login("first");
     const opened = [];
     const store = createLauncherStore(root);
+    store.update({ users: { "user:first": { recent: { "builtin:aaw": Date.now(), "builtin:tools": Date.now() } } } });
     const catalog = createLauncherCatalog(root, store, { openTool: async (tool) => opened.push(tool.id), openDesktop: async (target) => opened.push(target) });
     assert.equal(catalog.read().entries[0].id, "personal:test-tool");
     catalog.pin("personal:test-tool", true);
     await catalog.open("builtin:aaw");
+    await catalog.open("builtin:tools");
     assert.equal(catalog.read().entries.find((item) => item.id === "builtin:aaw").recent, 0);
+    assert.equal(catalog.read().entries.find((item) => item.id === "builtin:tools").recent, 0);
     assert.equal(catalog.read().entries[0].id, "personal:test-tool");
     await catalog.open("personal:test-tool");
-    assert.deepEqual(opened, ["aaw", "test-tool"]);
+    assert.deepEqual(opened, ["aaw", "tools", "test-tool"]);
     assert.equal(catalog.read().entries.find((item) => item.id === "personal:test-tool").pinned, true);
     login("second");
     assert.equal(catalog.read().entries.length, 2);
