@@ -8,7 +8,9 @@ import { aawDevBridgePlugin } from "./scripts/devBridgePlugin.ts";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // Parallel visual tests must not invalidate dependencies in the live desktop.
+  cacheDir: `node_modules/.cache/vite-${mode}`,
   plugins: [react(), tailwindcss(), aawDevBridgePlugin()],
 
   // Vitest：jsdom 环境，测试集中在 tests/ 目录，setup 统一挂 jest-dom 匹配器
@@ -40,4 +42,4 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
   },
-});
+}));
