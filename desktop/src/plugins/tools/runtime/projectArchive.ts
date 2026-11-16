@@ -31,10 +31,16 @@ console.log('已生成 dist/' + manifest.id + '.aaw-tool.json');
 
 export function toolProjectFiles(tool: ToolPackage): Record<string, string> {
   const { html, sourceFiles, ...manifest } = tool;
-  return {
+  const scaffolding = {
     "README.md": `# ${tool.name}\n\n这是 AAW 插件的可编辑源码项目。\n\n- index.html：实际运行的完整 HTML、内联 JavaScript 和 CSS。\n- manifest.json：插件身份、AI actions 与 settingsSchema。\n- scripts/build.mjs：使用 Node.js 构建可导入的工具包，无需 npm install。\n\n修改后执行 npm run build，将 dist 下的 .aaw-tool.json 导入 AAW。也可将本目录压缩为 ZIP 直接导入。更新已有 ID 时请在管理页选择更新源码。\n\nindex.html 必须自包含；外部 script src、CSS 引用需要由作者预先打包内联。附加源码文件会保留在导出包中，但宿主不会执行构建脚本。图片请使用 data URL。\n\n通过 window.aawSettings 读取管理页已保存设置；本项目仅包含设置声明与默认值，不包含用户填写值。通过 window.aawActions 暴露 AI 能力，界面按钮复用相同函数。\n`,
     "package.json": JSON.stringify({ name: `aaw-tool-${tool.id}`, version: tool.version, private: true, type: "module", scripts: { build: "node scripts/build.mjs" } }, null, 2),
     "scripts/build.mjs": buildScript,
+  };
+  // Windows treats paths case-insensitively. Author files win over generated
+  // scaffolding while retaining their exact contents and original path casing.
+  const authored = new Set(Object.keys(sourceFiles ?? {}).map((path) => path.toLowerCase()));
+  return {
+    ...Object.fromEntries(Object.entries(scaffolding).filter(([path]) => !authored.has(path.toLowerCase()))),
     ...sourceFiles,
     "manifest.json": JSON.stringify(manifest, null, 2),
     "index.html": html,

@@ -26,6 +26,17 @@ it("accepts a single outer project folder and edited HTML", () => {
   expect(importToolProject(zipSync(wrapped)).html).toBe("<h1>edited</h1>");
 });
 
+it("preserves author scaffold files without exporting case-insensitive duplicates", () => {
+  const sourceFiles = { "readme.md": "作者说明", "PACKAGE.JSON": '{"private":true}', "Scripts/BUILD.mjs": "// custom build" };
+  const tool = parseToolPackage(JSON.stringify({ ...sampleTool, sourceFiles }));
+  const archive = exportToolProject(tool);
+  const paths = Object.keys(unzipSync(archive));
+  expect(new Set(paths.map((path) => path.toLowerCase())).size).toBe(paths.length);
+  const imported = importToolProject(archive);
+  expect(imported.sourceFiles).toEqual(sourceFiles);
+  expect(importToolProject(exportToolProject(imported)).sourceFiles).toEqual(imported.sourceFiles);
+});
+
 it("rejects traversal, ambiguous archives, oversized expansion and invalid setting schemas", () => {
   const files = unzipSync(exportToolProject(sampleTool));
   expect(() => importToolProject(zipSync({ ...files, "../secret": strToU8("x") }))).toThrow("路径");

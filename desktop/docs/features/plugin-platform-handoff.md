@@ -229,3 +229,7 @@ desktop/tools-runtime/preload.cjs
 desktop/tools-runtime/runtime.mjs
 desktop/vite.config.ts
 ```
+
+## 2026-11-17 01:51 巡检修复：源码模板大小写冲突
+
+源码导出合并 README、package.json、scripts/build.mjs 模板时，按不区分大小写判断作者是否已经提供对应文件；已有作者文件优先且保留原路径和内容。避免有效的 readme.md / PACKAGE.JSON 等与自动模板形成 Windows 重复路径，导致导出的 ZIP 无法重新导入。回归覆盖导出、重新导入、再次导出，不修改真实用户安装库。
