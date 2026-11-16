@@ -90,3 +90,5 @@ npm --silent run tools -- describe uppercase
 在 `desktop` 目录执行 `npm run tauri dev` 构建 Electron 工具宿主并启动原生开发版。已有调试构建时，先运行 `npm run tools:build`，再启动 Vite（`npm run dev`）和 `src-tauri/target/debug/desktop.exe`。单独调试小窗可用 `npm run tools:launcher`。改动 Electron 源码后重新构建并重启宿主，Windows 实机 CLI 冒烟测试使用 `npm run tools:test`。
 
 启动器回归检查：构建后运行 `node --test scripts/test-launcher.mjs`；Windows Electron 界面验证运行 `node scripts/test-launcher-ui.mjs`。后者使用临时账号数据与独立 profile，覆盖搜索、固定、长列表、小尺寸布局和快捷键冲突。
+
+维护者可先阅读 [代码地图与 Agent 交接](plugin-platform-handoff.md)，区分源码、构建产物和账号数据目录。

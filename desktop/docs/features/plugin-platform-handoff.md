@@ -1,0 +1,231 @@
+# 个人插件平台：后续 Agent 开发交接
+
+更新日期：2026-11-17。本文覆盖从 `61d1d4c` 之后的个人插件平台开发，包括本次 UI 调整与导出修复。
+
+## 先确认项目与交付边界
+
+- Git 根目录：`E:\0_work\trysomething\Awesome-Agent-Workflow`
+- 开发工作目录：`E:\0_work\trysomething\Awesome-Agent-Workflow\desktop`
+- 用户交接文档：`E:\0_work\trysomething\AAW-Desktop-项目文档`
+- 分支为本地 `main`；用户要求小步迭代、本地提交，**不推送**。接手先执行 `git status --short --branch`，保留用户及其他 Agent 的已有修改。
+- 主窗为 Tauri + React + Cordis；Electron 是个人工具、小窗和 CLI 的宿主，整个 AAW 没有迁移到 Electron。
+- `tools` 是 AAW 内部 Cordis 插件；用户导入的每个工具是独立个人插件。小窗是统一功能启动器，还包含工作流、工具中心，后续可增加其他主窗功能。
+
+## 代码究竟存在哪里
+
+下列路径均相对 `desktop/`；它们是源码，而不是另外一份独立项目。
+
+| 目录 / 文件 | 职责与修改入口 |
+| --- | --- |
+| `src/plugins/tools/` | 个人插件平台前端、安装记录、配置、导入导出，是工具中心需求的主要修改目录 |
+| `src/plugins/tools/index.ts` | Cordis 插件生命周期、按账号隔离的安装库、保存设置及安装/更新/卸载服务 |
+| `src/plugins/tools/service.ts`、`types.ts` | 对外服务及 ToolPackage / settingsSchema 数据契约，跨插件只引用公开入口 |
+| `src/plugins/tools/runtime/package.ts` | 解析、规范化与验证 `.aaw-tool.json`，Electron 构建时复用这份契约 |
+| `src/plugins/tools/runtime/projectArchive.ts` | 源码 ZIP 生成、导入、项目模板和 Node 构建脚本 |
+| `src/plugins/tools/runtime/sourceFiles.ts` | 附加 UTF-8 源码文件、相对路径及文件数量/大小校验 |
+| `src/plugins/tools/runtime/settings.ts` | 设置声明、默认值、用户值校验及安全注入脚本；UI 与 CLI 共用 |
+| `src/plugins/tools/ui/ToolsPanel.tsx` | 工具中心页面状态、卡片、导入导出、调用宿主打开窗口 |
+| `src/plugins/tools/ui/ToolDeveloper.tsx` | 本轮拆出的开发编辑区，只负责输入与操作回调，不自行安装或解析工具 |
+| `src/plugins/tools/ui/ToolManagement.tsx` | 单插件管理、schema 表单、源码更新、卸载确认 |
+| `src/plugins/tools/ui/tools.css` | 仅 `.aaw-tools` 范围的 UI 样式、字号和容器适配；不修改聊天区全局字号 |
+| `src/plugins/tools/ui/sample.ts` | JSON 格式化示例；人类按钮与 AI action 使用同一个函数，支持缩进设置 |
+| `src/plugins/tools/ui/workbench.tsx` | 在新标签页、工作台注册工具中心入口 |
+| `tools-runtime/` | Electron 源码；小窗及 CLI 的主要修改目录，具体分工见下表 |
+| `src-tauri/src/tools_runtime.rs` | 启动/定位 Electron、父进程桥接、白名单导航和 ZIP 文件写入 |
+| `src-tauri/src/lib.rs` | 注册原生命令与启动器状态，在主程序启动时启动工具宿主 |
+| `src-tauri/tauri.conf.json` | 开发前构建、发行前构建以及 Electron/工作流产物打包配置 |
+| `src/plugins/host/` | 前端平台边界：`service.ts` 定义、`index.ts` 提供、`lifecycle/runtime.ts` 实现 Electron 打开/二进制写入/导航应答 |
+| `src/plugins/host/window/dialogs.ts` | 文件打开/保存对话框；本轮改为静态导入 Tauri dialog，避免点击时才拉取失效开发缓存 |
+| `src/plugins/host/storage/storage.ts` | 原生配置持久化，打开 Electron 前等待配置刷新 |
+| `src/plugins/project/workspace/launcherContext.ts` | 小窗入口的项目选择、会话草稿创建/复用策略；通过 `project/service.ts` 暴露 |
+| `src/plugins/workbench/navigation/launcher.ts` | 通用启动路由：等待贡献的 prepareGlobalOpen，然后打开面板 |
+| `src/plugins/workbench/types.ts`、`index.ts` | PanelLauncher 准备契约、接收原生导航事件 |
+| `src/plugins/workflow/ui/workbench.tsx` | AAW 工作流入口声明需要会话准备，继续复用既有工作流服务 |
+| `src/bootstrap/bootstrap.ts`、`installDesktopWorkbench.ts` | 安装 tools 服务与工作台贡献；不要绕过既有装配顺序 |
+| `vite.config.ts`、`playwright.config.ts` | 本轮隔离开发与视觉测试的依赖缓存，视觉服务器使用 visual mode |
+| `package.json`、`package-lock.json` | fflate、Electron 与开发脚本依赖，修改依赖时同步锁文件 |
+
+### Electron 各模块
+
+| 文件 | 责任 |
+| --- | --- |
+| `tools-runtime/main.mjs` | Electron 主进程、单实例、窗口尺寸、托盘、快捷键、IPC、父进程监控 |
+| `tools-runtime/launcher.html` / `.css` / `.js` | 小窗展示、字号、搜索、固定、最近使用、设置及键盘交互 |
+| `tools-runtime/launcher-registry.mjs` | Provider 注册、账号目录、固定、MRU、快捷键保存/冲突回滚 |
+| `tools-runtime/preload.cjs` | 受控 renderer API；不要直接暴露 Node 或任意原生命令 |
+| `tools-runtime/desktop-bridge.mjs` | 带令牌的本机路由连接，只开放允许的主窗入口 |
+| `tools-runtime/catalog.mjs` | 从 AAW 配置读取当前账号插件、用户设置和最近使用 |
+| `tools-runtime/runtime.mjs` | 沙箱工具窗口、配置注入、隐藏窗口执行 action |
+| `tools-runtime/cli.mjs` | `list` / `describe` / `run` 命令及 JSON 输入输出 |
+| `tools-runtime/aaw-tools.cmd` | Windows 发行版 CLI 包装器 |
+| `tools-runtime/package.json` | Electron 应用入口元信息 |
+
+### 构建与验证脚本
+
+- `scripts/build-tools-runtime.mjs`：把 Electron 源码拷贝到产物目录，并把 TypeScript 工具契约打包为 `package-contract.mjs`。
+- `scripts/tools-cli.mjs`：开发环境 CLI / 独立小窗入口。
+- `scripts/test-tools-runtime.mjs`：真实 Electron CLI、配置及源码项目构建冒烟测试。
+- `scripts/test-launcher.mjs`：Provider、账号隔离、MRU、固定、快捷键回滚测试。
+- `scripts/test-launcher-ui.mjs`：真实 Electron 搜索/固定/尺寸/快捷键/打开工具测试，使用临时账号和独立 profile。
+- `tests/plugins/tools/`：工具库、ZIP、配置和页面操作回归。
+- `tests/plugins/project/launcherContext.test.ts`：无会话创建、已存在草稿复用、目录选择取消。
+- `tests/plugins/workbench/launcher.test.ts`：贡献导航与生命周期。
+- `tests/plugins/host/hostLifecycle.test.ts`：原生对话框和宿主生命周期。
+- `tests/visual/toolsFixture.{html,tsx}`、`tools.pw.ts`：真实浏览器中的工具中心/开发/管理布局、交互及 ZIP 下载。
+- `tests/architecture/`：跨插件依赖、统一控件、宿主边界等架构规则。
+
+## 不要编辑构建产物
+
+| 路径 | 含义 |
+| --- | --- |
+| `tools-runtime/dist/` | Electron 可运行分发目录；修改源码后用 `npm.cmd run tools:build` 重建，不能只改这里 |
+| `src-tauri/target/debug/desktop.exe` | 本地原生调试程序，源文件在 `src-tauri/src/` |
+| `dist/` | Vite 生产前端产物 |
+| `node_modules/.cache/vite-development/` | 主开发服务器依赖缓存 |
+| `node_modules/.cache/vite-visual/` | 视觉测试专用缓存，不能与开发服务器共用 |
+| `node_modules/.cache/tools-*.png`、`launcher-compact.png` | 本地 UI 检查截图，不入版本库 |
+
+## 用户插件数据不在源码目录
+
+Windows 默认根目录是 `%LOCALAPPDATA%\com.aaw.desktop`，本机展开为 `C:\Users\14993\AppData\Local\com.aaw.desktop`。
+
+- `storage-location.json` 若存在，以其 `active` 配置确定实际数据位置。
+- 实际数据位置下 `configuration/preferences.json`：当前登录身份和插件库。插件库键为 `aaw-desktop.personal-tools.v1`，按 `user:<id>` 分组；不要把此文件提交到 Git 或复制进交接文档。
+- `configuration/tools-recent.json`：个人工具最近使用。
+- 默认根目录 `launcher-settings.json`：本机快捷键、账号固定项与启动器 MRU。
+- `launcher-profile/`：Electron 用户 profile，`EBWebView/` 是主窗 WebView 数据。
+- 源码 ZIP 由用户选择保存目录，没有自动放进仓库。仅导出插件声明、默认配置和源码，不导出用户填写的配置值。
+
+## 目前的产品规则
+
+1. 卡片「打开」直接打开 Electron；「管理」打开主窗管理页。管理页支持源码 ZIP 导出、同 ID 更新、设置和卸载。
+2. 小窗统一展示内置功能与个人插件；AAW 和工具中心 `trackRecent: false`，历史 MRU 同样忽略。用户固定的个人工具仍可出现在最近使用。
+3. 全局快捷键默认 Alt+Space，可自定义；注册失败保留原快捷键，托盘仍可打开。
+4. `prepareGlobalOpen` 返回项目路径或 null（取消）。项目服务负责选目录与会话；小窗 UI 不写项目/会话分支。
+5. 无会话时同步创建草稿，异步连接 agent；连接失败保留草稿，不阻止面板导航。打开工作流不等于启动工作流任务。
+6. `window.aawSettings` 和 `window.aawActions` 是个人插件的人机共用接口。设置保存后重新打开生效。
+7. 当前个人工具为自包含 HTML / JS / CSS 沙箱，未开放 Node、任意文件、网络请求及 Electron API。团队、市场、签名分发尚未实现。
+
+## 本轮 UI 和导出问题
+
+用户截图中小窗搜索过大、开发按钮无充分内边距，开发区还继承了聊天字号。本轮搜索由 23px 改为 17px，小窗默认由 860×410 改为 800×360 DIP；图标 36px，标题/正文/辅助文字分级。工具中心使用局部字号 token，避免全局 20px 会话偏好把工具控件放大。新增 `ToolDeveloper` 将文件栏、编辑区、状态栏、说明及操作区分开。
+
+用户提供的导出错误为 `Failed to fetch dynamically imported module: http://localhost:1420/node_modules/.vite/deps/@tauri-apps_plugin-dialog.js?...`。失败发生在对话框依赖加载，尚未写 ZIP。两台 Vite 服务器共用默认缓存是可见的风险来源：视觉测试可能使正在运行的主窗依赖 URL 失效。本轮按 mode 隔离缓存，并静态导入 `open/save`，同时保留取消提示、导出错误提示与进行中按钮禁用。视觉测试结束后，开发服务器新 dialog 模块 URL 实测返回 HTTP 200。
+
+若旧窗口仍持有旧 URL，先保存未安装的工具源码，再关闭重开 AAW。修改 Electron 源码后还需重建并重启 Electron 宿主；仅 React 热更新不会更新已经运行的小窗主进程。
+
+## 启动与验证
+
+在 `desktop` 下执行：
+
+```powershell
+# 完整开发，自动构建工作流和 Electron，再启动 Vite / Tauri
+npm.cmd run tauri dev
+
+# 已有原生构建时：终端 1，保持运行
+npm.cmd run tools:build
+npm.cmd run dev
+
+# 另一个终端，只在已有构建时使用
+.\src-tauri\target\debug\desktop.exe
+```
+
+不要同时启动两份 1420 开发服务器。若 Rust MSVC 环境缺失，使用本机 Visual Studio Build Tools 的开发者终端；之前已通过 Windows debug 构建。本轮前端和 Electron UI 变更不需要改 Rust。
+
+```powershell
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+npm.cmd run tools:build
+node --test scripts/test-launcher.mjs
+npm.cmd run tools:test
+node scripts/test-launcher-ui.mjs
+npx.cmd playwright test tests/visual/tools.pw.ts
+```
+
+浏览器视觉测试通过不等于原生文件对话框已人工验收。当前 Windows 自动化接口曾反复报 `foreground window did not report a process id`，不得把无法执行的原生点击记为通过。本机截图同时存在 `icode program not found`，这是 agent 环境问题；插件界面可以使用，但真实 agent 会话和工作流执行仍需要有效的 agent 安装及配置。
+
+## 下一位 Agent 的工作顺序
+
+先读本文、`personal-tools.md`、`unified-launcher.md` 以及外部文档中的最新操作记录；检查 Git 状态与当前进程，再定位用户问题所属层。界面改动优先复用统一控件并用局部 CSS；新增功能通过服务契约和贡献扩展；修复后执行相关检查、查看截图，记录未验证项，再小步本地提交。不得清理用户安装库、登录态或源码草稿来使测试通过。
+
+用户已要求每小时从设计者视角巡检，普通可逆实现选择按推荐方案执行；持续记录到外部 `16-设计巡检与操作日志.md`。调度由 Codex 自动化管理，状态以自动化配置为准，不能把文档视为任务已创建的证据。
+
+## 本轮本地提交与验证
+
+- `c4a714c`：隔离 Vite 缓存、提前加载原生文件对话框。
+- `fe3f5b7`：小窗紧凑排版、开发区组件与字号、导出反馈及验证。
+- TypeScript、改动范围 ESLint、Vite 构建通过。相关 Vitest 15 个文件 / 53 项通过；视觉检查 7 项通过（含真实浏览器 ZIP 下载和重新解析）；Electron UI、CLI、注册表 3 项测试通过。
+- 每小时巡检自动化已创建并为 ACTIVE，ID 为 `aaw`；执行与操作日志见外部 16 号文档。
+
+## 累计变更文件清单
+
+相对 Git 根目录，基线 `61d1d4c`。此列表只列个人插件平台迭代改动，后续新增文件应同步更新。
+
+```text
+desktop/README.md
+desktop/docs/architecture/cordis-plugin-dependencies.md
+desktop/docs/architecture/cordis-plugin-dependencies.mmd
+desktop/docs/features/personal-tools.md
+desktop/docs/features/plugin-platform-handoff.md
+desktop/docs/features/unified-launcher.md
+desktop/package-lock.json
+desktop/package.json
+desktop/playwright.config.ts
+desktop/scripts/build-tools-runtime.mjs
+desktop/scripts/test-launcher-ui.mjs
+desktop/scripts/test-launcher.mjs
+desktop/scripts/test-tools-runtime.mjs
+desktop/scripts/tools-cli.mjs
+desktop/src-tauri/src/lib.rs
+desktop/src-tauri/src/tools_runtime.rs
+desktop/src-tauri/tauri.conf.json
+desktop/src/bootstrap/bootstrap.ts
+desktop/src/bootstrap/installDesktopWorkbench.ts
+desktop/src/plugins/host/index.ts
+desktop/src/plugins/host/lifecycle/runtime.ts
+desktop/src/plugins/host/service.ts
+desktop/src/plugins/host/storage/storage.ts
+desktop/src/plugins/host/window/dialogs.ts
+desktop/src/plugins/project/service.ts
+desktop/src/plugins/project/workspace/launcherContext.ts
+desktop/src/plugins/tools/index.ts
+desktop/src/plugins/tools/runtime/package.ts
+desktop/src/plugins/tools/runtime/projectArchive.ts
+desktop/src/plugins/tools/runtime/settings.ts
+desktop/src/plugins/tools/runtime/sourceFiles.ts
+desktop/src/plugins/tools/service.ts
+desktop/src/plugins/tools/types.ts
+desktop/src/plugins/tools/ui/ToolDeveloper.tsx
+desktop/src/plugins/tools/ui/ToolManagement.tsx
+desktop/src/plugins/tools/ui/ToolsPanel.tsx
+desktop/src/plugins/tools/ui/sample.ts
+desktop/src/plugins/tools/ui/tools.css
+desktop/src/plugins/tools/ui/workbench.tsx
+desktop/src/plugins/workbench/index.ts
+desktop/src/plugins/workbench/navigation/launcher.ts
+desktop/src/plugins/workbench/types.ts
+desktop/src/plugins/workflow/ui/workbench.tsx
+desktop/tests/architecture/cordisArchitecture.test.ts
+desktop/tests/plugins/project/launcherContext.test.ts
+desktop/tests/plugins/tools/ToolsPanel.test.tsx
+desktop/tests/plugins/tools/projectArchive.test.ts
+desktop/tests/plugins/tools/tools.test.ts
+desktop/tests/plugins/workbench/launcher.test.ts
+desktop/tests/visual/tools.pw.ts
+desktop/tests/visual/toolsFixture.html
+desktop/tests/visual/toolsFixture.tsx
+desktop/tools-runtime/aaw-tools.cmd
+desktop/tools-runtime/catalog.mjs
+desktop/tools-runtime/cli.mjs
+desktop/tools-runtime/desktop-bridge.mjs
+desktop/tools-runtime/launcher-registry.mjs
+desktop/tools-runtime/launcher.css
+desktop/tools-runtime/launcher.html
+desktop/tools-runtime/launcher.js
+desktop/tools-runtime/main.mjs
+desktop/tools-runtime/package.json
+desktop/tools-runtime/preload.cjs
+desktop/tools-runtime/runtime.mjs
+desktop/vite.config.ts
+```
