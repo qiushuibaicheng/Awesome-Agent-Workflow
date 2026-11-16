@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useStore } from "zustand";
 import { btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
+import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
 import type { HostService } from "../../host/service.ts";
 import { parseToolPackage, toolPackageLimit } from "../runtime/package.ts";
 import type { ToolsService } from "../service.ts";
@@ -29,6 +30,15 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
     setFeedback(undefined);
     try {
       action();
+    } catch (error) {
+      setFeedback({ text: errorText(error), error: true });
+    }
+  }
+
+  async function openElectron(id?: string) {
+    setFeedback(undefined);
+    try {
+      await host.openToolsElectron(id);
     } catch (error) {
       setFeedback({ text: errorText(error), error: true });
     }
@@ -85,13 +95,15 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
     const preview = view.kind === "preview";
     return (
       <section aria-label={active.name} className="flex h-full min-h-0 flex-col bg-base">
-        <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+        <header className="flex flex-wrap items-center gap-2 border-b border-line bg-surface/60 px-4 py-3">
           <button type="button" className={btnGhost} onClick={() => setView({ kind: "library" })}>
             {preview ? "返回开发模式" : "返回工具列表"}
           </button>
           <h2 className="min-w-0 truncate text-ui-lg font-semibold text-ink">{active.name}</h2>
           {preview && <span className="text-ui-sm text-ink-subtle">开发预览</span>}
+          {!preview && host.isNative() && <button type="button" className={`${btnSecondary} ml-auto`} onClick={() => void openElectron(active.id)}>在 Electron 打开</button>}
         </header>
+        {feedback?.error && <p role="alert" className="border-b border-line px-4 py-2 text-ui-sm text-danger-ink">{feedback.text}</p>}
         <iframe
           key={active.id}
           aria-label={active.name}
@@ -106,25 +118,32 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
 
   return (
     <section aria-label="工具" className="flex h-full min-h-0 flex-col bg-base">
-      <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-        <h2 className="mr-auto text-ui-lg font-semibold text-ink">个人工具</h2>
-        <button type="button" className={btnSecondary} onClick={() => picker.current?.click()}>导入工具</button>
-        <button type="button" className={btnSecondary} aria-pressed={development} onClick={() => setDevelopment(!development)}>开发模式</button>
+      <header className="border-b border-line bg-gradient-to-br from-info/10 via-surface/70 to-base px-4 pb-3 pt-5 sm:px-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
+          <h2 className="mr-auto text-ui-xl font-semibold text-ink">个人工具</h2>
+          {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开小窗</button>}
+          <button type="button" className={btnPrimary} onClick={() => picker.current?.click()}>导入工具</button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button type="button" className={development ? btnGhost : btnSecondary} aria-pressed={!development} onClick={() => setDevelopment(false)}>已安装 · {tools.length}</button>
+          <button type="button" className={development ? btnSecondary : btnGhost} aria-pressed={development} onClick={() => setDevelopment(true)}>开发模式</button>
+        </div>
         <input ref={picker} type="file" multiple accept=".json,application/json" onChange={(event) => void importFiles(event)} hidden />
       </header>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:px-5">
         {feedback && (
-          <p role={feedback.error ? "alert" : "status"} className={`whitespace-pre-wrap break-words text-ui-sm ${feedback.error ? "text-danger-ink" : "text-ink-subtle"}`}>
+          <p role={feedback.error ? "alert" : "status"} className={`whitespace-pre-wrap break-words rounded-lg border border-line bg-surface px-3 py-2 text-ui-sm ${feedback.error ? "text-danger-ink" : "text-ink-subtle"}`}>
             {feedback.text}
           </p>
         )}
         {development && (
-          <section aria-label="开发模式" className="space-y-3 rounded-xl border border-line bg-surface p-3">
+          <section aria-label="开发模式" className="space-y-3 rounded-xl border border-line bg-surface p-4">
             <div className="flex flex-wrap items-center gap-2">
               <label htmlFor="personal-tool-source" className="mr-auto text-ui-base font-semibold text-ink">工具包源码</label>
               <button type="button" className={btnGhost} onClick={() => edit(sampleTool)}>载入 JSON 格式化示例</button>
             </div>
-            <textarea id="personal-tool-source" className="min-h-48 w-full rounded-lg border border-line bg-base p-3 font-mono text-ui-sm text-ink" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
+            <textarea id="personal-tool-source" className="min-h-48 w-full rounded-lg border border-line bg-base p-3 font-mono text-ui-sm leading-relaxed text-ink focus-visible:outline-2 focus-visible:outline-info" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="粘贴 .aaw-tool.json 源码" spellCheck={false} />
             <div className="flex flex-wrap gap-2">
               <button type="button" className={btnSecondary} disabled={!draft.trim()} onClick={() => run(() => setView({ kind: "preview", tool: parseToolPackage(draft) }))}>运行预览</button>
               <button type="button" className={btnPrimary} disabled={!draft.trim()} onClick={() => run(() => {
@@ -134,13 +153,24 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
             </div>
           </section>
         )}
-        {tools.length === 0 && <p className="text-ui-sm text-ink-subtle">暂无个人工具。导入工具包，或在开发模式中试用示例。</p>}
+        {tools.length === 0 && !development && (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line-strong px-5 py-10 text-center">
+            <WrenchIcon className="size-7 text-info" />
+            <p className="text-ui-base font-semibold text-ink">暂无个人工具</p>
+            <p className="text-ui-sm text-ink-subtle">导入工具包，或在开发模式中试用示例。</p>
+            <button type="button" className={btnSecondary} onClick={() => edit(sampleTool)}>试用 JSON 格式化</button>
+          </div>
+        )}
         <ul aria-label="已安装工具" className="space-y-2">
           {tools.map(({ package: tool }) => (
-            <li key={tool.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3">
-              <div className="mr-auto min-w-0">
+            <li key={tool.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-info/35">
+              <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-lg bg-info/10 text-info"><WrenchIcon className="size-4" /></span>
+              <div className="mr-auto min-w-[6rem] flex-1">
                 <h3 className="break-words text-ui-base font-semibold text-ink">{tool.name}</h3>
-                <p className="text-ui-sm text-ink-subtle">{tool.version}</p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-ui-sm text-ink-subtle">
+                  <span>v{tool.version}</span>
+                  {!!tool.actions?.length && <span className="inline-flex items-center gap-1 text-info"><SquareTerminalIcon className="size-3.5" />支持 CLI</span>}
+                </p>
               </div>
               {removing === tool.id ? (
                 <div className="flex flex-wrap items-center gap-2">

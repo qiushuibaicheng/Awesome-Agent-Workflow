@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, screen } from "electron";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { defaultRoot, getCatalog, describeTool } from "./catalog.mjs";
@@ -144,6 +145,14 @@ function installLauncher(root, isolated) {
 app.setName("AAW 工具");
 if (process.env.AAW_TOOLS_HOST_PROFILE)
   app.setPath("userData", process.env.AAW_TOOLS_HOST_PROFILE);
+else if (cliMarker >= 0) {
+  const profile = mkdtempSync(join(app.getPath("temp"), "aaw-tools-cli-profile-"));
+  app.setPath("userData", profile);
+  app.once("quit", () => {
+    try { rmSync(profile, { recursive: true, force: true }); }
+    catch { /* Chromium may still hold transient cache files during shutdown. */ }
+  });
+}
 
 if (cliMarker >= 0) {
   app.whenReady().then(async () => {

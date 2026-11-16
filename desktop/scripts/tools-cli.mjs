@@ -10,6 +10,7 @@ const binary = join(root, process.platform === "win32" ? "electron.exe"
 const args = process.argv.slice(2);
 const launcher = args[0] === "--launcher";
 const profile = launcher ? undefined : mkdtempSync(join(tmpdir(), "aaw-tools-cli-"));
+let stdinFile;
 
 async function writeInput(directory) {
   const chunks = [];
@@ -26,8 +27,10 @@ async function writeInput(directory) {
 
 try {
   if (!existsSync(binary)) throw new Error("未构建 Electron 宿主，请先运行 npm run tools:build。");
-  if (args[0] === "run" && args.length === 3 && !process.stdin.isTTY && profile)
-    args.push(`--input-file=${await writeInput(profile)}`);
+  if (args[0] === "run" && args.length === 3 && !process.stdin.isTTY && profile) {
+    stdinFile = await writeInput(profile);
+    args.push(`--input-file=${stdinFile}`);
+  }
   const child = spawn(binary, launcher ? [] : ["--aaw-cli", ...args], {
     stdio: ["ignore", "inherit", "inherit"],
     windowsHide: !launcher,
@@ -41,6 +44,7 @@ try {
   process.stdout.write(JSON.stringify({ ok: false, error: error.message }) + "\n");
   process.exitCode = 1;
 } finally {
+  if (stdinFile) rmSync(stdinFile, { force: true });
   if (profile) {
     try { rmSync(profile, { recursive: true, force: true }); }
     catch { /* Electron may still be releasing transient cache files. */ }

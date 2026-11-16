@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { BrowserWindow, protocol, session } from "electron";
 
 const scheme = "aaw-tool";
@@ -32,6 +33,7 @@ export async function loadTool(isolated, tool, visible) {
   const win = new BrowserWindow({
     show: false, title: tool.name, width: 760, height: 590,
     minWidth: 360, minHeight: 280, autoHideMenuBar: true,
+    icon: join(import.meta.dirname, "icon.png"),
     backgroundColor: "#171c24",
     webPreferences: {
       session: isolated, sandbox: true, contextIsolation: true, nodeIntegration: false,

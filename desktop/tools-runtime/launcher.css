@@ -15,6 +15,7 @@ main { padding: 0 24px; min-height: 0; display: flex; flex-direction: column; }
 .search span { color: #a8c6fa; font-size: 27px; line-height: 1; }
 input { background: transparent; border: 0; color: #edf2fb; width: 100%; padding: 5px 0; font: 14px system-ui; outline: none; }
 input::placeholder { color: #9aaac4; }
+.search input:focus-visible { outline: none; }
 .section-label { display: flex; justify-content: space-between; margin: 19px 2px 8px; color: #adbbd1; font-size: 12px; }
 ul { min-height: 0; margin: 0 -5px 0 0; padding: 0 5px 0 0; overflow-y: auto; list-style: none; }
 li + li { margin-top: 5px; }
