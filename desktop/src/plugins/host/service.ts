@@ -52,6 +52,7 @@ export interface HostService {
   readonly account: AccountHost;
   readonly updates: UpdatesHost;
   readonly workflowEngine: WorkflowEngineHost;
+  openToolsElectron(this: void, toolId?: string): Promise<void>;
 }
 export { AcpWriteError } from "./process/transportErrors.ts";
 export { openWindowRequests } from "./storage/windowRequests.ts";

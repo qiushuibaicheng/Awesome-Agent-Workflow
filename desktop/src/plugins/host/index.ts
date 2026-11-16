@@ -30,6 +30,7 @@ export function apply(ctx: Context, options?: HostOptions): void {
     account: host.account,
     updates: host.updates,
     workflowEngine: host.workflowEngine,
+    openToolsElectron: host.openToolsElectron,
   } satisfies HostService);
   ctx.effect(() => () => host.dispose(), "host:resources");
 }

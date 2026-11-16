@@ -2,7 +2,7 @@ import type { ExitDiagnostics, HostOptions } from "../types.ts";
 import type { HostService } from "../service.ts";
 import { createTauriAcpProcessHost } from "../process/acpProcess.ts";
 import { createAccountHost } from "../adapters/account.ts";
-import { webviewStorage } from "../storage/storage.ts";
+import { flushNativeConfiguration, webviewStorage } from "../storage/storage.ts";
 import { diagnosticsHost } from "../adapters/diagnostics.ts";
 import { createHostRuntime, isTauriEnv } from "../adapters/host.ts";
 import { createBridgeAcpClient } from "../dev/bridgeClient.ts";
@@ -29,6 +29,11 @@ export class DesktopHost implements HostService {
   private bridge?: ReturnType<typeof createBridgeAcpClient>;
   readonly storage = webviewStorage;
   readonly diagnostics = diagnosticsHost;
+  readonly openToolsElectron: HostService["openToolsElectron"] = (toolId) =>
+    this.resources.run(async () => {
+      await flushNativeConfiguration();
+      await this.invoke("tools_open_electron", { toolId });
+    });
   readonly exitGate = createHostExitGate();
   private exitDiagnostics?: ExitDiagnostics;
   private readonly flushForExit: ExitDiagnostics = (entry) =>

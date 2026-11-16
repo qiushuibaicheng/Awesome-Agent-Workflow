@@ -15,6 +15,7 @@ mod sso_login;
 mod storage_location;
 mod storage_preferences;
 mod terminal_pty;
+mod tools_runtime;
 mod usage_statistics;
 mod workflow_service;
 
@@ -30,6 +31,7 @@ pub fn run() {
         .manage(notification_links::NotificationRoutes::default())
         .setup(|app| {
             storage_location::initialize(app.handle()).map_err(std::io::Error::other)?;
+            tools_runtime::start(app.handle());
             if let Err(error) = diagnostics::start(app.handle()) {
                 eprintln!("日志服务启动失败: {error}");
             }
@@ -53,6 +55,7 @@ pub fn run() {
         // 工作区目录选择（@tauri-apps/plugin-dialog）
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            tools_runtime::tools_open_electron,
             codeagent_history::agent_history_evidence,
             usage_statistics::usage_initialize,
             usage_statistics::usage_record,
