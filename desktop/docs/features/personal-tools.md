@@ -6,9 +6,9 @@
 
 可以一次导入多个 `.aaw-tool.json` 文件。每个工具单独导出，导出文件可以在另一台支持此格式的 AAW Desktop 上安装。导入遇到相同 ID 会提示冲突。更新已有工具时，在开发模式中编辑并保存同一 ID。
 
-按 **Ctrl + Alt + 空格** 呼出工具小窗，支持按名称或 ID 搜索、方向键选择、回车打开、Esc 隐藏。个人工具按最近打开时间排序，打开后会显示独立的 Electron 工具窗口。主窗工具页也提供「打开小窗」和「在 Electron 打开」。快捷键发生冲突时，可以用托盘菜单打开，并在启动宿主前设置环境变量 `AAW_TOOLS_SHORTCUT` 更换组合键。
+按 **Alt + 空格** 呼出 AAW 启动器。小窗采用搜索栏、「最近使用」和「已固定」的图标网格布局，提供「全部功能」，支持方向键选择、回车打开、Esc 返回或隐藏。鼠标移到入口上点击星标可固定或取消固定。点击右上角 AAW 图标或底部快捷键，输入自定义组合键并保存，即刻生效且重启保留；冲突时会保留原快捷键，也可以从系统托盘打开小窗。快捷键偏好保存在本机，当前版本不再使用 `AAW_TOOLS_SHORTCUT` 环境变量。
 
-小窗和 CLI 读取 AAW Desktop 当前登录账号的本地安装清单。小窗的启动项由来源提供，个人工具是当前已接入的来源。未来 AAW 工作流可以增加自己的启动项并委托主窗导航。
+小窗和 CLI 读取 AAW Desktop 当前登录账号的本地安装清单。小窗是统一功能入口，已经接入个人工具、AAW 工作流和工具中心。个人工具打开独立的 Electron 窗口，内置入口打开主窗当前项目对应的面板；未选择项目时提示先选项目。小窗成功打开后记录最近使用，固定顺序独立于最近使用排序。主窗工具中心也提供「打开启动器」和「在 Electron 打开」。架构及扩展约定见 [统一启动器架构](unified-launcher.md)。
 
 ## 给 AI 开发助手的约定
 
@@ -65,3 +65,5 @@ npm --silent run tools -- describe uppercase
 ## 桌面宿主开发
 
 在 `desktop` 目录执行 `npm run tauri dev` 构建 Electron 工具宿主并启动原生开发版。已有调试构建时，先运行 `npm run tools:build`，再启动 Vite（`npm run dev`）和 `src-tauri/target/debug/desktop.exe`。单独调试小窗可用 `npm run tools:launcher`。改动 Electron 源码后重新构建并重启宿主，Windows 实机 CLI 冒烟测试使用 `npm run tools:test`。
+
+启动器回归检查：构建后运行 `node --test scripts/test-launcher.mjs`；Windows Electron 界面验证运行 `node scripts/test-launcher-ui.mjs`。后者使用临时账号数据与独立 profile，覆盖搜索、固定、长列表、小尺寸布局和快捷键冲突。
