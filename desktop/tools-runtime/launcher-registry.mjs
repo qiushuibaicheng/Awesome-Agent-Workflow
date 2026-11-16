@@ -56,8 +56,7 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
       recent: Math.max(entry.recent, Number(user.recent?.[entry.id]) || 0), pinned: pinned.includes(entry.id), pinOrder: pinned.indexOf(entry.id),
     })).sort((a, b) => b.recent - a.recent || a.name.localeCompare(b.name, "zh-CN")) };
   }
-  function updateUser(patch) {
-    const { owner } = read();
+  function updateUser(patch, owner = read().owner) {
     const users = store.read().users ?? {};
     const key = owner ?? "guest";
     store.update({ users: { ...users, [key]: { ...users[key], ...patch(users[key] ?? {}) } } });
@@ -65,15 +64,16 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
   return {
     registry, read,
     async open(id) {
-      const entry = read().entries.find((item) => item.id === id);
+      const snapshot = read();
+      const entry = snapshot.entries.find((item) => item.id === id);
       if (!entry) throw new Error("此功能已移除或当前账号不可用，请重新搜索。");
       await entry.open();
-      updateUser((user) => ({ recent: { ...user.recent, [id]: Date.now() } }));
+      updateUser((user) => ({ recent: { ...user.recent, [id]: Date.now() } }), snapshot.owner);
     },
     pin(id, pinned) {
       const entries = read().entries;
       if (!entries.some((entry) => entry.id === id) || typeof pinned !== "boolean") throw new Error("无效的固定入口。");
-      const ids = entries.filter((entry) => entry.pinned && entry.id !== id).map((entry) => entry.id);
+      const ids = entries.filter((entry) => entry.pinned && entry.id !== id).sort((a, b) => a.pinOrder - b.pinOrder).map((entry) => entry.id);
       updateUser(() => ({ pinned: pinned ? [...ids, id] : ids }));
     },
   };

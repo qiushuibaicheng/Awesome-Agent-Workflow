@@ -122,10 +122,17 @@ document.addEventListener("keydown", (event) => {
   if (!buttons.length || event.target !== query) return;
   if (event.key.startsWith("Arrow")) {
     event.preventDefault();
-    const current = buttons[selected];
-    const row = buttons.filter((button) => button.getBoundingClientRect().top === current.getBoundingClientRect().top);
-    const delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: row.length, ArrowUp: -row.length }[event.key];
-    choose((selected + delta + buttons.length) % buttons.length);
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      choose((selected + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length);
+    } else {
+      const current = buttons[selected].getBoundingClientRect();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      const candidates = buttons.map((button, index) => ({ index, rect: button.getBoundingClientRect() }))
+        .filter(({ rect }) => direction * (rect.top - current.top) > 1)
+        .sort((a, b) => Math.abs(a.rect.top - current.top) - Math.abs(b.rect.top - current.top)
+          || Math.abs(a.rect.left - current.left) - Math.abs(b.rect.left - current.left));
+      choose(candidates[0]?.index ?? (direction > 0 ? 0 : buttons.length - 1));
+    }
     buttons[selected].scrollIntoView({ block: "nearest" });
   } else if (event.key === "Enter") { event.preventDefault(); void open(buttons[selected].dataset.id); }
 });

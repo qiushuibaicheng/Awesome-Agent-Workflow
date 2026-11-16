@@ -21,6 +21,7 @@ function request() {
     openTool: args.find((item) => item.startsWith("--aaw-open="))?.slice(11),
     background: args.includes("--aaw-background"),
     parent: Number(process.env.AAW_TOOLS_PARENT_PID),
+    bridge: { port: Number(process.env.AAW_LAUNCHER_PORT), token: process.env.AAW_LAUNCHER_TOKEN },
   };
 }
 
@@ -135,6 +136,12 @@ function installLauncher(root, isolated) {
   tray.on("click", () => showLauncher());
 
   return (intent) => {
+    // A rapid desktop restart may reuse the tray process before its parent watcher fires.
+    if (Number.isInteger(intent?.bridge?.port) && intent.bridge.port > 0 && intent.bridge.port < 65536
+      && typeof intent.bridge.token === "string" && /^[a-f0-9]{64}$/.test(intent.bridge.token)) {
+      process.env.AAW_LAUNCHER_PORT = String(intent.bridge.port);
+      process.env.AAW_LAUNCHER_TOKEN = intent.bridge.token;
+    }
     watchDesktop(intent?.parent);
     if (intent?.openTool) {
       void open(`personal:${intent.openTool}`).catch((error) => dialog.showErrorBox("无法打开 AAW 工具", error.message));

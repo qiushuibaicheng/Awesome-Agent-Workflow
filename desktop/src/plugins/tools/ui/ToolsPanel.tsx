@@ -8,6 +8,7 @@ import { parseToolPackage, toolPackageLimit } from "../runtime/package.ts";
 import type { ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
 import { sampleTool } from "./sample.ts";
+import "./tools.css";
 
 type View = { kind: "library" } | { kind: "installed"; id: string } | { kind: "preview"; tool: ToolPackage };
 const packageText = (tool: ToolPackage) => JSON.stringify(tool);
@@ -18,6 +19,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   const tools = useStore(service.state);
   const [view, setView] = useState<View>({ kind: "library" });
   const [development, setDevelopment] = useState(false);
+  const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [removing, setRemoving] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; error?: true }>();
@@ -94,7 +96,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   if (active) {
     const preview = view.kind === "preview";
     return (
-      <section aria-label={active.name} className="flex h-full min-h-0 flex-col bg-base">
+      <section aria-label={active.name} className="aaw-tools flex h-full min-h-0 flex-col bg-base">
         <header className="flex flex-wrap items-center gap-2 border-b border-line bg-surface/60 px-4 py-3">
           <button type="button" className={btnGhost} onClick={() => setView({ kind: "library" })}>
             {preview ? "返回开发模式" : "返回工具列表"}
@@ -109,7 +111,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
           aria-label={active.name}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          srcDoc={`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${framePolicy}">${active.html}`}
+          srcDoc={`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${framePolicy}">${active.html}`}
           className="min-h-0 w-full flex-1 border-0"
         />
       </section>
@@ -117,21 +119,21 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   }
 
   return (
-    <section aria-label="工具" className="flex h-full min-h-0 flex-col bg-base">
-      <header className="border-b border-line bg-gradient-to-br from-info/10 via-surface/70 to-base px-4 pb-3 pt-5 sm:px-5">
+    <section aria-label="工具" className="aaw-tools flex h-full min-h-0 flex-col bg-base">
+      <header className="tools-header border-b border-line px-4 pb-3 pt-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
-          <h2 className="mr-auto text-ui-xl font-semibold text-ink">个人工具</h2>
-          {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开小窗</button>}
+          <div className="mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">把灵感变成随手可用的工具</p></div>
+          {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
           <button type="button" className={btnPrimary} onClick={() => picker.current?.click()}>导入工具</button>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="tools-tabs mt-4 flex flex-wrap items-center gap-2">
           <button type="button" className={development ? btnGhost : btnSecondary} aria-pressed={!development} onClick={() => setDevelopment(false)}>已安装 · {tools.length}</button>
           <button type="button" className={development ? btnSecondary : btnGhost} aria-pressed={development} onClick={() => setDevelopment(true)}>开发模式</button>
         </div>
         <input ref={picker} type="file" multiple accept=".json,application/json" onChange={(event) => void importFiles(event)} hidden />
       </header>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:px-5">
+      <div className="tools-content min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {feedback && (
           <p role={feedback.error ? "alert" : "status"} className={`whitespace-pre-wrap break-words rounded-lg border border-line bg-surface px-3 py-2 text-ui-sm ${feedback.error ? "text-danger-ink" : "text-ink-subtle"}`}>
             {feedback.text}
@@ -161,10 +163,11 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
             <button type="button" className={btnSecondary} onClick={() => edit(sampleTool)}>试用 JSON 格式化</button>
           </div>
         )}
-        <ul aria-label="已安装工具" className="space-y-2">
-          {tools.map(({ package: tool }) => (
-            <li key={tool.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-info/35">
-              <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-lg bg-info/10 text-info"><WrenchIcon className="size-4" /></span>
+        {tools.length > 0 && <label className="tools-search"><span aria-hidden="true">⌕</span><input aria-label="搜索已安装工具" placeholder="搜索你的工具…" value={search} onChange={(event) => setSearch(event.target.value)} /><span>{tools.length}</span></label>}
+        <ul aria-label="已安装工具" className="tools-grid">
+          {tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(search.trim().toLowerCase())).map(({ package: tool }, index) => (
+            <li key={tool.id} className="tool-card flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-info/35">
+              <span aria-hidden="true" className={`tool-symbol tone-${index % 4} grid size-9 shrink-0 place-items-center rounded-lg bg-info/10 text-info`}><WrenchIcon className="size-5" /></span>
               <div className="mr-auto min-w-[6rem] flex-1">
                 <h3 className="break-words text-ui-base font-semibold text-ink">{tool.name}</h3>
                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-ui-sm text-ink-subtle">
@@ -182,7 +185,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
                   })}>确认卸载</button>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-1">
+                <div className="tool-actions flex flex-wrap gap-1">
                   <button type="button" className={btnPrimary} aria-label={`打开 ${tool.name}`} onClick={() => run(() => {
                     service.open(tool.id);
                     setView({ kind: "installed", id: tool.id });
@@ -195,6 +198,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
             </li>
           ))}
         </ul>
+        {tools.length > 0 && !tools.some(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(search.trim().toLowerCase())) && <p className="py-8 text-center text-ui-sm text-ink-subtle">没有匹配的工具</p>}
       </div>
     </section>
   );

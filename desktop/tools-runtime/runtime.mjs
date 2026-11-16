@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { BrowserWindow, protocol, session } from "electron";
+import { BrowserWindow, protocol, session, screen } from "electron";
 
 const scheme = "aaw-tool";
 const documents = new Map();
@@ -21,7 +21,7 @@ export function prepareRuntime() {
     const url = new URL(request.url);
     const html = url.pathname === "/index.html" ? documents.get(url.hostname) : undefined;
     if (html === undefined) return new Response("", { status: 404 });
-    return new Response(`<!doctype html><meta charset="utf-8">${html}`, {
+    return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${html}`, {
       headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": policy },
     });
   });
@@ -30,9 +30,10 @@ export function prepareRuntime() {
 
 export async function loadTool(isolated, tool, visible) {
   const key = randomUUID();
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const win = new BrowserWindow({
-    show: false, title: tool.name, width: 760, height: 590,
-    minWidth: 360, minHeight: 280, autoHideMenuBar: true,
+    show: false, title: tool.name, width: Math.min(900, workArea.width - 32), height: Math.min(650, workArea.height - 32),
+    minWidth: Math.min(360, workArea.width - 32), minHeight: Math.min(280, workArea.height - 32), autoHideMenuBar: true,
     icon: join(import.meta.dirname, "icon.png"),
     backgroundColor: "#171c24",
     webPreferences: {
