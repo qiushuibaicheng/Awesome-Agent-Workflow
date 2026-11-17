@@ -139,3 +139,30 @@ it("shows an in-place busy state while a tool opens, and does not open twice", a
   await vi.waitFor(() => expect(target.dataset.busy).toBeUndefined());
   expect(target.getAttribute("aria-busy")).toBe("false");
 });
+
+it("shows the saved default after resetting an edited shortcut", async () => {
+  const { launcher } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  document.getElementById("settings-open")!.click();
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+  accelerator.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+  expect(accelerator.value).toBe("Control+Alt+K");
+  document.getElementById("reset-shortcut")!.click();
+  await vi.waitFor(() => expect(launcher.shortcut).toHaveBeenCalledWith("Alt+Space"));
+  await vi.waitFor(() => expect(document.getElementById("message")!.textContent).toContain("已保存"));
+  expect(accelerator.value).toBe("Alt+Space");
+});
+
+it("retains the edited shortcut when restoring the default fails", async () => {
+  const { launcher, wake } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  document.getElementById("settings-open")!.click();
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+  accelerator.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+  launcher.shortcut.mockRejectedValueOnce(new Error("快捷键已被占用"));
+  document.getElementById("reset-shortcut")!.click();
+  await vi.waitFor(() => expect(document.getElementById("message")!.textContent).toContain("占用"));
+  wake();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalledTimes(2));
+  expect(accelerator.value).toBe("Control+Alt+K");
+});

@@ -184,8 +184,9 @@ function settings(visible) {
 async function saveShortcut(value) {
   if (!validShortcut(value)) { hint("请先按下要用的组合键（需含 Ctrl / Alt / Shift 之一）。"); return; }
   try {
-    shortcutState(await window.launcher.shortcut(value));
+    const result = await window.launcher.shortcut(value);
     acceleratorDirty = false;
+    shortcutState(result);
     hint("");
     status("快捷键已保存，即刻生效。");
   } catch (error) { status(error.message); }
