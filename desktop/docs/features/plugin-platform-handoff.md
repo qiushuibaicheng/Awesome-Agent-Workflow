@@ -251,3 +251,13 @@ ToolManagement 的返回、编辑工具包、已选择文件的更新源码共�
 构建支持可选环境变量 AAW_TOOLS_BUILD_DIR 指定独立产物目录（默认仍是 tools-runtime/dist），供验证全新构建且避免覆盖正在使用的产物。此次在临时目录实测旧规则构建成功但 import registry 报 ERR_MODULE_NOT_FOUND，修复后新 registry 加载和实际 Electron --aaw-cli help 均通过。检查新功能时不能把旧 dist 测试通过视为新源码验收。
 
 近期其他本地提交新增入口：tools-runtime/tone.mjs 为启动器颜色/图标规则；src/plugins/tools/ui/mark.ts 为工具中心镜像规则；ui/aiPrompt.ts 提供 AI 提示词与输出提取。它们来自本轮之前的本地提交，本轮保留其实现，未修改 UI。
+
+## 2026-11-17 14:28 未解决：账号目录映射冲突
+
+复现基线345e62c。runtime/project.ts 的 toolOwnerSegment 把不同字符统一替换为下划线，映射不是一对一：alice@example.com 与 alice_example.com 都变成 alice_example.com。在不访问真实磁盘的内存IO中，以前者创建 private-tool 后，listToolProjects(owner=后者) 返回了前者的项目路径。现有 project.test.ts 10项通过，未覆盖这类账号。Windows目录大小写不敏感也是后续编码设计需要覆盖的条件。
+
+tools-runtime/tool-storage.mjs 的 ownerSegment 使用相同替换规则，因此持久化数据目录也具有同名映射问题（本轮仅静态核对该处，没有对真实存储做跨账号实验）。本轮没有证据表明本机真实账号已受影响，也没有读取真实工具数据来判断。
+
+推荐修复边界：项目源码与工具持久化共同使用稳定、不会因替换/大小写丢失身份信息的目录键，并覆盖特殊字符和大小写账号的隔离回归；迁移需要保留原目录和备份。已有冲突目录无法从目录名恢复唯一归属，不可把内容自动复制给两个账号或按当前登录账号抢占；这部分需明确归属后迁移。仅替换函数会使旧数据暂时不可见，不可称为无损修复。
+
+状态：已复现，未修复。后续Agent优先处理此项；本轮未更名、搬移、覆盖或删除用户目录。
