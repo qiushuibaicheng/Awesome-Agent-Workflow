@@ -1,11 +1,15 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- 这个脚本直接用 node 跑，不经 ESM 构建 */
 /* global document -- waitForFunction 的回调在页面里执行 */
 /**
- * 真机验证：把全局唤起快捷键从别的组合键改回 Alt+Space。
+ * 真机验证：录制快捷键时让出全局热键，焦点离开录制框就立刻还回去。
  *
  * 为什么要单独一个脚本：启动器是纯静态页面 + Electron 主进程，单测只能覆盖
  * jsdom 里的 keydown 逻辑，覆盖不到"全局热键会不会把按键吞掉、窗口会不会被
- * 自己的快捷键关掉"。这里用 Playwright 驱动真实 Electron 宿主跑一遍。
+ * 自己的快捷键关掉"。这里用 Playwright 驱动真实 Electron 宿主跑一遍：
+ *
+ *   1. 选中录制框 -> 当前快捷键必须解绑（否则第一下就被自己关掉窗口），
+ *      同时 Alt+Space 被临时占住（否则 Windows 弹窗口系统菜单）；
+ *   2. 焦点离开录制框 -> 当前快捷键必须重新注册（设置页开着也能唤出/收回面板）。
  *
  *   npm run tools:verify-shortcut
  *
@@ -83,16 +87,40 @@ const profile = mkdtempSync(path.join(tmpdir(), "aaw-launcher-verify-"));
   console.log(`Ctrl+A hint mentions 全选: ${ctrlAHint.includes("全选")}`);
   await win.click("#shortcut-form button.primary");
   await win.waitForFunction(() => (document.getElementById("message")?.textContent ?? "").includes("已保存"), undefined, { timeout: 5000 });
+
+  // 保存按钮拿走了焦点 = 录制结束。设置页还开着，但热键必须已经能用，
+  // 否则用户想按快捷键把这个面板收回时会发现它没反应。
+  const keepOnBlur = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+A"));
+  console.log(`Ctrl+A live while settings page stays open: ${keepOnBlur}`);
+
+  await accelerator.click();
+  const yieldOnFocus = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+A"));
+  console.log(`Ctrl+A yielded after focusing the capture field: ${!yieldOnFocus}`);
+
+  // 点说明文字把焦点从录制框挪开（不是可聚焦元素，等价于点空白处）。
+  await win.click("#shortcut-hint");
+  const backOnBlur = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+A"));
+  console.log(`Ctrl+A back after clicking off the field: ${backOnBlur}`);
+
   await win.click("#settings-close");
   const ctrlARegistered = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+A"));
   console.log(`Ctrl+A registered after save: ${ctrlARegistered}`);
+
+  // 再打开一次设置页但不点录制框：热键仍应生效，也就是"设置页开着也能唤出/收回"。
+  await win.click("#shortcut");
+  const liveOnOpen = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+A"));
+  console.log(`Ctrl+A live right after opening settings: ${liveOnOpen}`);
 
   const passed = result.value === "Alt+Space"
     && result.visible[0] === true
     && held === true
     && !result.hint.includes("不能作为主键")
     && ctrlAHint.includes("全选")
-    && ctrlARegistered === true;
+    && keepOnBlur === true
+    && yieldOnFocus === false
+    && backOnBlur === true
+    && ctrlARegistered === true
+    && liveOnOpen === true;
   console.log(passed ? "PASS" : "FAIL");
   await app.close();
   process.exitCode = passed ? 0 : 1;

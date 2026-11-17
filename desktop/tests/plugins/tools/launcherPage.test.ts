@@ -105,6 +105,29 @@ it("keeps the settings page and the accelerator draft across a hide/show cycle",
   expect(accelerator.value).toBe("Ctrl+Alt+K");
 });
 
+it("only yields the global shortcut while the capture field is selected", async () => {
+  const { launcher } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+
+  document.getElementById("settings-open")!.click();
+  // 打开设置页 ≠ 开始录制：热键仍然生效，用户可以用它把这个面板收回。
+  expect(document.activeElement).not.toBe(accelerator);
+  expect(launcher.capture).not.toHaveBeenCalledWith(true);
+
+  // 点一下录制框才算选中：这一刻热键必须让开，否则第一下按下去就被自己的快捷键关掉窗口。
+  accelerator.focus();
+  await vi.waitFor(() => expect(launcher.capture).toHaveBeenLastCalledWith(true));
+
+  // 焦点离开（保存按钮、空白处）：设置页还开着，热键要立刻回来。
+  accelerator.blur();
+  await vi.waitFor(() => expect(launcher.capture).toHaveBeenLastCalledWith(false));
+
+  // 离开设置页也必须还回来，否则用户的全局热键就永久丢了。
+  document.getElementById("settings-close")!.click();
+  expect(launcher.capture).toHaveBeenLastCalledWith(false);
+});
+
 it("captures the accelerator from real key presses and refuses one without a modifier", async () => {
   const { launcher } = boot();
   await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
@@ -235,22 +258,6 @@ it("does not scold the user for pressing a modifier alone before the main key", 
   // 接着按下 Space，组合才成立。
   press({ key: " ", code: "Space", altKey: true });
   expect(accelerator.value).toBe("Alt+Space");
-});
-
-it("releases the global shortcut while the settings page is open, and takes it back after", async () => {
-  const { launcher, wake } = boot();
-  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
-
-  document.getElementById("shortcut")!.click();
-  expect(launcher.capture).toHaveBeenLastCalledWith(true);
-  document.getElementById("settings-close")!.click();
-  expect(launcher.capture).toHaveBeenLastCalledWith(false);
-
-  // 隐藏再唤起时设置页仍在，热键必须重新让出来，否则下一次按 Alt+Space 会直接关上窗口。
-  document.getElementById("settings-open")!.click();
-  launcher.capture.mockClear();
-  wake();
-  await vi.waitFor(() => expect(launcher.capture).toHaveBeenCalledWith(true));
 });
 
 it("accepts the Alt+Space the main process catches, since Windows swallows it", async () => {

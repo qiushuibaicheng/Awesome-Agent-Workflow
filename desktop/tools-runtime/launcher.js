@@ -190,8 +190,11 @@ async function refresh(reset = true) {
     // reset 只重置"浏览态"（搜索词、展开、全部功能），不重置设置页与草稿。
     if (reset) { query.value = ""; showAll = false; expanded = false; status(""); }
     render();
-    if (settingsOpen) { $("accelerator").focus(); releaseGlobalShortcut(true); }
-    else if (reset) query.focus();
+    if (settingsOpen) {
+      // 唤起（或刷新）不把焦点塞进录制框：焦点在框里就等于"正在录"，全局热键
+      // 会让开，用户反而没法用快捷键把这个面板收回去。录制由用户点一下框开始。
+      if (document.activeElement === $("accelerator")) $("accelerator").blur();
+    } else if (reset) query.focus();
   } catch (error) { status(error.message); }
 }
 function settings(visible) {
@@ -202,9 +205,8 @@ function settings(visible) {
   if (visible) {
     if (!acceleratorDirty) $("accelerator").value = savedShortcut;
     hint("");
-    $("accelerator").focus();
-    $("accelerator").select();
-    releaseGlobalShortcut(true);
+    // 不自动聚焦：打开设置页不等于开始录制。用户点一下录制框才让出全局热键，
+    // 这样"设置页开着"和"正在录"是两件事——后者才需要热键让位。
   } else {
     releaseGlobalShortcut(false);
     query.focus();
@@ -215,7 +217,10 @@ function settings(visible) {
  *
  * 不让的话，用户按下的第一下往往就是当前生效的那组键（最常见就是 Alt+Space）：
  * 全局热键抢先一步把窗口关掉，用户看到的是界面消失，而不是录进输入框。
- * 窗口被隐藏时主进程会兜底恢复，所以这里只跟设置页的开合走。
+ *
+ * 让出的范围只跟录制框的焦点走，不是整个设置页——用户点开设置页只是想看看，
+ * 或者把光标挪到别处时，仍然要能按快捷键把这个面板唤出/收回。窗口被隐藏时
+ * 主进程会兜底恢复，渲染进程没发出去也不会把热键永久弄丢。
  */
 function releaseGlobalShortcut(active) {
   try {
@@ -247,6 +252,11 @@ $("expand").addEventListener("click", () => { expanded = !expanded; render(); })
 $("settings-open").addEventListener("click", () => settings($("settings").hidden));
 $("shortcut").addEventListener("click", () => settings(true));
 $("accelerator").addEventListener("input", () => { acceleratorDirty = true; });
+// 让位只覆盖"正在录制"这一小段时间：选中录制框时全局热键失效，否则用户按下的
+// 第一下就会被自己正在生效的快捷键收走，录不进去；点到别处（保存按钮、空白处）
+// 立刻还回去，这样设置页开着也能用快捷键把面板唤出或收回。
+$("accelerator").addEventListener("focus", () => releaseGlobalShortcut(true));
+$("accelerator").addEventListener("blur", () => releaseGlobalShortcut(false));
 // 快捷键用"按下组合键"捕获，而不是让用户默写字符串——之前拼错只能等保存后看报错。
 $("accelerator").addEventListener("keydown", (event) => {
   if (!settingsOpen) return;
