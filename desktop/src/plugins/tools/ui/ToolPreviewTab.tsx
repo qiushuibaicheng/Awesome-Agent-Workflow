@@ -118,7 +118,7 @@ export function ToolPreviewTab({ dir, host, project, tools, revision = 0 }: {
           : null}
     </p>
     {state.warnings.length > 0 && (
-      <p className="build-hint px-3 pt-2">{state.warnings.length} 条建议（不影响运行），完整列表在「工具项目」里。</p>
+      <p className="build-hint px-3 pt-2">{state.warnings.length} 条建议（不影响运行），完整列表在「开发工具」里。</p>
     )}
     <div className="min-h-0 flex-1">
       <ToolPreview

@@ -17,7 +17,7 @@
 ## 功能说明
 
 - [界面功能参考](features/ui-reference.md)。
-- [个人工具开发手册](features/personal-tools.md)与[工具中心第四轮整改](features/tools-center-round4.md)：工具中心界面、开发指导窗口、跨层接缝、性能基准与验证证据。
+- [个人工具开发手册](features/personal-tools.md)、[工具中心第四轮整改](features/tools-center-round4.md)与[工具中心第五轮整改](features/tools-center-round5.md)：工具中心界面、开发指导窗口、跨层接缝、启动性能根因与验证证据。
 - [文档批注](features/document-annotations.md)。
 - [会话状态悬浮卡](features/session-status-card.md)。
 - [CodeAgent 压缩历史验收](codeagent-compaction-acceptance.md)。

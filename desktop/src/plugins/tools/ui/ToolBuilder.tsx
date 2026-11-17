@@ -18,7 +18,7 @@ export function ViolationList({ problems }: { problems: readonly ToolViolation[]
 }
 
 /**
- * 新建工具：一句话 + 落在哪。
+ * 开发工具表单：一句话 + 落在哪。
  *
  * 刻意做成一行而不是半屏卡片——用户打开工具中心的第一诉求通常是"用某个
  * 工具"，不是"再做一个"。要展开细节（选目录）时才展示第二行。
@@ -30,9 +30,9 @@ export function NewToolForm({ workshop, available }: {
   const state = workshop.state;
   const { brief, parent, busy, note, project, projectsRoot } = useStore(state);
   const target = parent ?? projectsRoot;
-  return <section aria-label="新建工具" className="build-new">
+  return <section aria-label="开发工具表单" className="build-new">
     <form onSubmit={(event) => { event.preventDefault(); void workshop.create(); }}>
-      <label className="build-new-label" htmlFor="tool-brief">新建工具</label>
+      <label className="build-new-label" htmlFor="tool-brief">一句话描述你要的工具</label>
       <textarea
         id="tool-brief"
         aria-label="描述你要的工具"

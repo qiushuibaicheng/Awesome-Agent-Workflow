@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readToolPackage, resolveToolSettings } from "./package-contract.mjs";
 
@@ -32,15 +32,49 @@ function appearanceOf(settings) {
   return { theme: value?.theme === "warm" ? "warm" : "dark" };
 }
 
+function fingerprint(path) {
+  try {
+    const stat = statSync(path);
+    return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+  } catch { return "missing"; }
+}
+
+/**
+ * 配置快照：按文件指纹失效，不再按时间猜。
+ *
+ * `preferences.json` 里存着每个工具的完整 HTML，能到几 MB；启动器每次唤起、
+ * `showLauncher()` 取底色、`openGuide()` 取主题都会读它。以前是"读一遍、解析
+ * 一遍"乘以调用次数，还配了一个 1 秒 TTL 的猜测式缓存——装完新工具要等 1 秒
+ * 才出现，改了主题也可能晚一拍。
+ *
+ * 现在缓存 key 是三个相关文件的 mtime/ctime/size：没变就零成本复用，主窗一写
+ * 配置文件指纹立刻变，下一个读取就是新内容。比 TTL 又快又准。
+ */
+let configurationCache;
+function configurationOf(root) {
+  const location = join(root, "storage-location.json");
+  const storage = readRecord(location).active || root;
+  const configuration = join(storage, "configuration");
+  const preferences = join(configuration, "preferences.json");
+  const recent = join(configuration, "tools-recent.json");
+  const stamp = `${root}|${fingerprint(location)}|${fingerprint(preferences)}|${fingerprint(recent)}`;
+  if (configurationCache && configurationCache.stamp === stamp) return configurationCache.value;
+  const value = { settings: readRecord(preferences), configuration, stamp };
+  configurationCache = { stamp, value };
+  return value;
+}
+
+/** 给启动器目录快照用：同一份配置没变就直接复用，变了立刻重读。 */
+export function configurationStamp(root) {
+  return configurationOf(root).stamp;
+}
+
 export function readAppearance(root) {
-  const storage = readRecord(join(root, "storage-location.json")).active || root;
-  return appearanceOf(readRecord(join(storage, "configuration", "preferences.json")));
+  return appearanceOf(configurationOf(root).settings);
 }
 
 export function getCatalog(root) {
-  const storage = readRecord(join(root, "storage-location.json")).active || root;
-  const configuration = join(storage, "configuration");
-  const settings = readRecord(join(configuration, "preferences.json"));
+  const { settings, configuration } = configurationOf(root);
   // 主题顺带带走：小窗唤起时不用为它再读一遍同一个文件（里面有每个工具的完整 HTML）。
   const { theme } = appearanceOf(settings);
   const auth = JSON.parse(settings["aaw-desktop.auth.v1"] || "null");

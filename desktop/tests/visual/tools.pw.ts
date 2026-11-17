@@ -87,7 +87,7 @@ for (const width of [360, 740]) {
   test(`stalled project hands the work back to the user at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 720 });
     await page.goto("/tests/visual/toolsFixture.html?stalled");
-    await page.getByRole("button", { name: /制作工具/ }).click();
+    await page.getByRole("button", { name: /开发工具/ }).click();
     await expect(page.getByText("打开目录自己改", { exact: true })).toBeVisible();
     const openDir = page.getByRole("button", { name: "打开项目目录", exact: true });
     const recheck = page.getByRole("button", { name: "我改完了，重新校验", exact: true });

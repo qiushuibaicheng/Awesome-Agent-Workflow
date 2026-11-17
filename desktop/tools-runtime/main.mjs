@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, Tray, screen } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, Notification, Tray, screen } from "electron";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { defaultRoot, readAppearance } from "./catalog.mjs";
@@ -105,6 +106,20 @@ function installToolIpc(root) {
     writeFileSync(result.filePath, text, "utf8");
     return true;
   });
+
+  // 剪切板文本（uTools 类插件最常见的一件事）。只读写纯文本，不碰图片/HTML/富文本：
+  // 那些格式会牵出编码与权限问题，而"复制结果 / 剪切板历史"只需要文本。
+  ipcMain.handle("tool:clipboard:read", (event) => {
+    context(event);
+    return clipboard.readText();
+  });
+  ipcMain.handle("tool:clipboard:write", (event, text) => {
+    context(event);
+    if (typeof text !== "string") throw new Error("写入剪切板的内容必须是文本。");
+    if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("写入剪切板的文本不能超过 1 MB。");
+    clipboard.writeText(text);
+    return true;
+  });
 }
 
 function installLauncher(root, isolated) {
@@ -193,46 +208,63 @@ function installLauncher(root, isolated) {
     launcher?.hide();
   }
 
+  /**
+   * 启动器窗口在宿主就绪时就建好（保持隐藏），不是等第一次按快捷键才建。
+   *
+   * 第一次按 Alt+Space 之所以要等好几秒，就是这段冷启动：new BrowserWindow +
+   * Chromium 渲染进程 + loadFile + 首帧。预热之后按键只剩 show() 和一次刷新，
+   * 从"几秒"降到几十毫秒；页面加载时 tools:list 也顺带把目录读进缓存。
+   */
+  let launcherReady = false;
+  let pendingShow = false;
+  function ensureLauncher() {
+    if (launcher) return launcher;
+    launcher = new BrowserWindow({
+      show: false, width: 800, height: 360, resizable: false,
+      frame: false, alwaysOnTop: true, skipTaskbar: true,
+      roundedCorners: true, backgroundColor: launcherBackground(),
+      webPreferences: {
+        preload: join(import.meta.dirname, "preload.cjs"),
+        sandbox: true, nodeIntegration: false, contextIsolation: true,
+      },
+    });
+    launcher.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    launcher.webContents.on("will-navigate", (event) => event.preventDefault());
+    // 失焦即收起；隐藏时 setCapture(false) 会把全局热键和临时占位一起收回来。
+    launcher.on("blur", () => launcher?.hide());
+    launcher.on("hide", () => setCapture(false));
+    launcher.on("closed", () => { launcher = undefined; launcherReady = false; });
+    launcher.once("ready-to-show", () => {
+      launcherReady = true;
+      if (pendingShow) { pendingShow = false; showLauncher(); }
+    });
+    void launcher.loadFile(launcherFile).catch((error) => dialog.showErrorBox("AAW 启动器", error.message));
+    return launcher;
+  }
+
   function showLauncher(toggle = false) {
     if (toggle && launcher?.isVisible()) {
       launcher.hide();
       return;
     }
-    if (!launcher) {
-      launcher = new BrowserWindow({
-        show: false, width: 800, height: 360, resizable: false,
-        frame: false, alwaysOnTop: true, skipTaskbar: true,
-        roundedCorners: true, backgroundColor: launcherBackground(),
-        webPreferences: {
-          preload: join(import.meta.dirname, "preload.cjs"),
-          sandbox: true, nodeIntegration: false, contextIsolation: true,
-        },
-      });
-      launcher.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-      launcher.webContents.on("will-navigate", (event) => event.preventDefault());
-      // 失焦即收起；隐藏时 setCapture(false) 会把全局热键和临时占位一起收回来。
-      launcher.on("blur", () => launcher?.hide());
-      launcher.on("hide", () => setCapture(false));
-      launcher.on("closed", () => { launcher = undefined; });
-      launcher.once("ready-to-show", () => showLauncher());
-      void launcher.loadFile(launcherFile).catch((error) => dialog.showErrorBox("AAW 启动器", error.message));
-      return;
-    }
+    const win = ensureLauncher();
+    // 预热还没完成时先记下这次按键，ready-to-show 立刻显示，别把输入吞掉。
+    if (!launcherReady) { pendingShow = true; return; }
     // 主题可能在两次唤起之间被改过，这里再同步一次底色，避免切换瞬间闪出另一套底色。
-    launcher.setBackgroundColor(launcherBackground());
+    win.setBackgroundColor(launcherBackground());
     const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const width = Math.min(800, workArea.width - 24);
     const height = Math.min(360, workArea.height - 24);
     // Windows locks non-resizable bounds; briefly release them for display/DPI changes.
-    launcher.setResizable(true);
-    launcher.setBounds({ width, height,
+    win.setResizable(true);
+    win.setBounds({ width, height,
       x: Math.round(workArea.x + (workArea.width - width) / 2),
       y: Math.round(workArea.y + (workArea.height - height) / 3),
     });
-    launcher.setResizable(false);
-    launcher.show();
-    launcher.focus();
-    launcher.webContents.send("tools:refresh");
+    win.setResizable(false);
+    win.show();
+    win.focus();
+    win.webContents.send("tools:refresh");
   }
 
   function verifySender(event) {
@@ -317,6 +349,58 @@ function installLauncher(root, isolated) {
   ]));
   tray.on("click", () => showLauncher());
 
+  /** 把"这次想做什么"抽成纯动作：命令行参数、单实例转发和常驻命令通道共用。 */
+  function applyIntent(command) {
+    if (command === "--aaw-guide") { openGuide(); return; }
+    if (typeof command === "string" && command.startsWith("--aaw-open=")) {
+      void open(`personal:${command.slice(11)}`).catch((error) => dialog.showErrorBox("无法打开 AAW 工具", error.message));
+      return;
+    }
+    if (command === "--aaw-background") return;
+    if (!launcher?.isVisible()) showLauncher();
+  }
+
+  /**
+   * 常驻命令通道：宿主一就绪就主动连上主窗口的桥，并保持这条连接。
+   *
+   * 以前每次点「开发指导」或「打开工具」，Rust 侧都要 spawn 一个完整 Electron
+   * 进程，只为让单实例锁把参数转发给已经在跑的宿主——1~2 秒就这么来的。现在
+   * Rust 直接往这条连接写一行命令，省掉整个进程冷启动；连接断了也无所谓，
+   * Rust 会退回原来的 spawn 转发，功能不会丢。
+   */
+  let commandChannelStarted = false;
+  function connectCommandChannel(token) {
+    if (commandChannelStarted) return;
+    const port = Number(process.env.AAW_LAUNCHER_PORT);
+    if (!Number.isInteger(port) || port < 1 || port > 65535 || !token) return;
+    commandChannelStarted = true;
+    const socket = createConnection({ host: "127.0.0.1", port });
+    socket.setEncoding("utf8");
+    socket.setKeepAlive(true);
+    let buffer = "";
+    socket.on("connect", () => socket.write(`${JSON.stringify({ token, kind: "host" })}\n`));
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      if (buffer.length > 65536) { buffer = ""; return; }
+      let at;
+      while ((at = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, at);
+        buffer = buffer.slice(at + 1);
+        try {
+          const message = JSON.parse(line);
+          if (message.token === token) applyIntent(message.command);
+        } catch { /* 坏行丢掉，不影响后面的命令 */ }
+      }
+    });
+    socket.on("error", () => {});
+    // 连接断了要重建：否则 Rust 侧会一直退回 spawn 转发（功能在，但会慢回去）。
+    // 父进程退出时 watchDesktop 会让宿主一起退出，不会留下无限重连的孤儿。
+    socket.on("close", () => {
+      commandChannelStarted = false;
+      setTimeout(() => connectCommandChannel(process.env.AAW_LAUNCHER_TOKEN), 1500).unref();
+    });
+  }
+
   return (intent) => {
     // A rapid desktop restart may reuse the tray process before its parent watcher fires.
     if (Number.isInteger(intent?.bridge?.port) && intent.bridge.port > 0 && intent.bridge.port < 65536
@@ -325,11 +409,15 @@ function installLauncher(root, isolated) {
       process.env.AAW_LAUNCHER_TOKEN = intent.bridge.token;
     }
     watchDesktop(intent?.parent);
-    if (intent?.guide) {
-      openGuide();
-    } else if (intent?.openTool) {
-      void open(`personal:${intent.openTool}`).catch((error) => dialog.showErrorBox("无法打开 AAW 工具", error.message));
-    } else if (!intent?.background && !launcher?.isVisible()) showLauncher();
+    // 只有常驻后台宿主需要预热启动器窗口：它才是"用户按 Alt+Space 时已经
+    // 就绪"的那一个。带 --aaw-guide / --aaw-open 直接启动的实例不需要这个小窗，
+    // 提前建反而会抢焦点、影响首次录制快捷键时的焦点归属。
+    if (intent?.background) ensureLauncher();
+    connectCommandChannel(process.env.AAW_LAUNCHER_TOKEN);
+    const command = intent?.guide ? "--aaw-guide"
+      : intent?.openTool ? `--aaw-open=${intent.openTool}`
+        : intent?.background ? "--aaw-background" : "--aaw-launcher";
+    applyIntent(command);
   };
 }
 

@@ -1,6 +1,6 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readRecord, getCatalog } from "./catalog.mjs";
+import { readRecord, getCatalog, configurationStamp } from "./catalog.mjs";
 import { toneOf, toolGlyph } from "./tone.mjs";
 
 export function createLauncherStore(root) {
@@ -13,6 +13,13 @@ export function createLauncherStore(root) {
       const temp = `${path}.tmp-${process.pid}`;
       writeFileSync(temp, JSON.stringify(next));
       renameSync(temp, path);
+    },
+    /** 固定/最近使用变了也要让目录快照失效，否则"最近使用"排序不更新。 */
+    stamp() {
+      try {
+        const stat = statSync(path);
+        return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+      } catch { return "missing"; }
     },
   };
 }
@@ -38,18 +45,20 @@ export function createLauncherRegistry() {
 export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
   const registry = createLauncherRegistry();
   /**
-   * 目录快照：`preferences.json` 里存着每个工具的完整 HTML，文件可能有几 MB。
-   * 原来一次 read() 里 owner 和 personal provider 各调一次 getCatalog，等于把同
-   * 一个文件读两遍、解析两遍；用户连续按快捷键时更明显。这里做一次短 TTL 缓存
-   * （1 秒）——同一个动作里复用，短时间重复唤起也不重复解析，装完新工具最多晚
-   * 一秒出现。
+   * 目录快照按"文件指纹"失效，不再按时间猜。
+   *
+   * `getCatalog()` 要解析几 MB 的 `preferences.json`（里面是每个工具的完整 HTML），
+   * 而一次 `read()` 里 owner 判断与 personal provider 会各调一次。指纹没变就直接
+   * 复用同一份结果：连续唤起零解析；主窗装了新工具、改了主题、点了固定或打开过
+   * 工具，相关文件一写指纹立刻变，下一次读取就是新内容——没有旧版 TTL 那 1 秒
+   * 的"装完还看不到"。
    */
   let snapshot;
-  const ttl = 1000;
-  function catalog(force = false) {
-    if (!force && snapshot && Date.now() - snapshot.at < ttl) return snapshot.value;
+  function catalog() {
+    const stamp = `${configurationStamp(root)}|${store.stamp()}`;
+    if (snapshot && snapshot.stamp === stamp) return snapshot.value;
     const value = getCatalog(root);
-    snapshot = { at: Date.now(), value };
+    snapshot = { stamp, value };
     return value;
   }
   registry.register("personal", () => catalog().tools.map((entry) => ({

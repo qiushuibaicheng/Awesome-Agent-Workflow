@@ -31,6 +31,34 @@ type Tab = "library" | "projects";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
+/**
+ * 空列表不是"什么都没有"的占位符，而是这个页面唯一一次讲清「工具能干嘛」的机会。
+ *
+ * 原来只有一个虚线框 + 一行灰字 + 两个按钮，既没说明做出来的东西长什么样，
+ * 也没说 AI 会做哪些事，用户站在空页面前不知道该点哪。这里给出三步预期和
+ * 一个具体例子，主按钮直接去「开发工具」——不再和页签摆两个同义入口。
+ */
+function EmptyLibrary({ onCreate, onImport }: { onCreate: () => void; onImport: () => void }) {
+  return <section className="tools-empty" aria-label="还没有工具">
+    <div className="tools-empty-hero">
+      <span className="tools-empty-glow" aria-hidden="true" />
+      <span className="tools-empty-mark" aria-hidden="true"><WrenchIcon /></span>
+    </div>
+    <h3 className="tools-empty-title">从一句话开始，做一个自己的工具</h3>
+    <p className="tools-empty-lead">工具是能独立打开的小窗口：格式化 JSON、批量改文本、随手记点东西，或者让你的常用操作一键完成。</p>
+    <ol className="tools-empty-steps">
+      <li><span aria-hidden="true">1</span><div><strong>说清要做什么</strong><small>例如「把接口返回的 JSON 转成表格」</small></div></li>
+      <li><span aria-hidden="true">2</span><div><strong>AI 写好并自动校验</strong><small>源码就在一个真实目录里，随时能改</small></div></li>
+      <li><span aria-hidden="true">3</span><div><strong>验收后随时打开</strong><small>工具中心、启动器里都能一键唤起</small></div></li>
+    </ol>
+    <div className="tools-empty-actions">
+      <button type="button" className={`${btnPrimary} tools-empty-primary`} onClick={onCreate}>开始做工具 <span aria-hidden="true">→</span></button>
+      <button type="button" className={btnSecondary} onClick={onImport}>导入 ZIP</button>
+    </div>
+    <p className="tools-empty-foot">也可以点顶部的「开发指导 ↗」看完整的开发约定，或者把同事给的工具包直接导进来。</p>
+  </section>;
+}
+
 export function ToolsPanel({ service, host, project, workshop, onPreviewProject }: {
   service: ToolsService;
   host: HostService;
@@ -81,7 +109,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
             const id = dir.split(/[\\/]/).filter(Boolean).pop();
             if (id) service.setSource(id, dir);
           }
-          setFeedback({ text: `已把 ${result.created.length} 个旧工具迁成项目目录，可以在「工具项目」里继续开发。` });
+          setFeedback({ text: `已把 ${result.created.length} 个旧工具迁成项目目录，可以在「开发工具」里继续开发。` });
           void workshop.refreshProjects();
         }
       } catch { /* 迁移失败不该影响使用，下次打开再试 */ }
@@ -259,11 +287,12 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">说一句需求，AI 做一个能用的小工具</p></div>
           {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
           <button type="button" className={btnSecondary} onClick={() => picker.current?.click()}>导入工具</button>
-          <button type="button" className={btnPrimary} onClick={() => setView({ kind: "projects" })}>新建工具</button>
         </div>
         <div className="tools-tabs mt-4 flex flex-wrap items-center gap-2">
           <button type="button" className={tab === "library" ? btnSecondary : btnGhost} aria-pressed={tab === "library"} onClick={() => setView({ kind: "library" })}>已安装 · {tools.length}</button>
-          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => setView({ kind: "projects" })}>制作工具 · {workshopState.projects.length}</button>
+          {/* 顶部不再放「新建工具」：它和这个页签是同一个界面，两个入口只会让人
+              以为点了会去别的地方。做工具统一从这里进，名字也统一叫「开发工具」。 */}
+          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => setView({ kind: "projects" })}>开发工具 · {workshopState.projects.length}</button>
           {/* 开发指导独立成窗口：内容是全平台通用的规范，不该混在"做某个工具"的流程里。 */}
           <button type="button" className={`${btnGhost} tools-guide`} onClick={() => void openGuide()} disabled={busy}>开发指导 ↗</button>
         </div>
@@ -308,15 +337,10 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
 
         {tab === "library" && <>
           {tools.length === 0 && (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line-strong px-5 py-10 text-center">
-              <WrenchIcon className="size-7 text-info" />
-              <p className="text-ui-base font-semibold text-ink">还没有工具</p>
-              <p className="text-ui-sm text-ink-subtle">写一句需求让 AI 做，或者导入同事给的 ZIP。</p>
-              <div className="flex flex-wrap justify-center gap-2">
-                <button type="button" className={btnPrimary} onClick={() => setView({ kind: "projects" })}>新建工具</button>
-                <button type="button" className={btnSecondary} onClick={() => picker.current?.click()}>导入 ZIP</button>
-              </div>
-            </div>
+            <EmptyLibrary
+              onCreate={() => setView({ kind: "projects" })}
+              onImport={() => picker.current?.click()}
+            />
           )}
           {tools.length > 0 && <label className="tools-search"><span aria-hidden="true">⌕</span><input aria-label="搜索已安装工具" placeholder="搜索你的工具…" value={search} onChange={(event) => setSearch(event.target.value)} /><span>{tools.length}</span></label>}
           {/* 紧凑行而不是大卡片：右栏只有 360px 左右，卡片式一屏只能放三个，
@@ -356,7 +380,14 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
             ))}
           </ul>
           {needle && visible.length === 0 && (
-            <p className="build-hint">{`没有名字或 ID 含「${query.trim()}」的工具。`}</p>
+            <div className="tools-search-empty">
+              <span aria-hidden="true">⌕</span>
+              <div>
+                <strong>没有找到匹配的工具</strong>
+                <p>名字或 ID 里没有「{query.trim()}」。换个关键词，或者看看是不是还没导入。</p>
+              </div>
+              <button type="button" className={btnGhost} onClick={() => setSearch("")}>清空搜索</button>
+            </div>
           )}
         </>}
       </div>

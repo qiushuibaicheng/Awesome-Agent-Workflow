@@ -52,7 +52,7 @@ export function toolGuideMarkdown(): string {
 
 ## 从这里开始
 
-- **做一个新工具**：工具中心 →「制作工具」→ 写一句需求 → 开始做。
+- **做一个新工具**：工具中心 →「开发工具」→ 写一句需求 → 开始做。
 - **改一个已有的**：同一个标签页里点项目的「继续开发」。
 - **做完了**：面板会自动校验，通过后点「确认安装」。
 - **不想让 AI 做**：项目目录里的 \`manifest.json\` 与 \`index.html\` 就是全部源码，直接改，改完点「我改完了，重新校验」。
@@ -70,8 +70,21 @@ function guideBody(context: ToolGuideContext): string {
 
 ## 一个工具是什么
 
-单页、自包含、无后端的交互界面：一个 \`index.html\` 装下全部 HTML/CSS/JS。
-必须有至少一个动作让 AI 也能调用。不是多页面站点，不是后台服务，不是需要构建的 npm 应用。
+一个**随叫随到、独立完成一件事**的小程序：有自己的窗口界面，能从工具中心或启动器一键打开，也能被 AI 通过命令调用。它不是一个网页，也不是一个需要部署的服务——更接近 uTools 里的插件：打开就用，用完就走，中间的状态能留到下次。
+
+工具能做的事远比「格式化一段文本」多，常见的几类：
+
+| 场景 | 例子 |
+|---|---|
+| 文本与数据处理 | JSON / YAML 格式化与互转、正则测试、批量改名、编码解码、Markdown 转表格 |
+| 剪切板与输入增强 | 剪切板历史、复制后自动去格式或转大写、常用短语速查、颜色值转换 |
+| 计算与查阅 | 时间戳换算、进制与单位换算、哈希与二维码、内网接口状态速查 |
+| 文件与小批处理 | 打开一个文本、清洗内容、再存成新文件；把一批文本合并导出 |
+| 个人留存 | 待办清单、随手记、常用配置、最近用过的输入（走 \`aawStore\`） |
+
+它能读写系统剪切板、读写用户亲手选的文件、把数据留到下次打开、按声明联网访问 http/https。**不能**做后台常驻服务、不能装 npm 包、不能读任意本地路径、不能弹系统通知或调用摄像头——平台把这些挡在沙箱外面，是为了让一个 ZIP 能在别人机器上直接装、直接跑。
+
+技术上的边界只有一条：整个工具是自包含的 \`index.html\`（HTML/CSS/JS 都在里面），\`manifest.json\` 描述身份、动作、设置与能力。不是多页面站点，不是后台服务，不是需要构建的 npm 应用。必须有至少一个动作让 AI 也能调用——界面上的按钮和 \`aawActions\` 里的函数是同一件事，人和 AI 走同一条路。
 
 ## 项目结构
 
@@ -107,15 +120,18 @@ function guideBody(context: ToolGuideContext): string {
 - \`html\` 是整页字符串：写的时候注意转义，别漏 \`</script>\`。
 - \`settingsSchema\` 的 \`type\` 只能是 text / number / boolean / select；select 要带 \`options\`。
 
-## 运行时能力（只有这四个入口）
+## 运行时能力（只有这五个入口）
 
 1. \`window.aawSettings\` — 只读设置对象，键是 settingsSchema 的 id。
 2. \`window.aawActions\` — \`{ [actionId]: async (input) => 结果 }\`，界面上按钮必须调用同一个函数；8 秒内返回、结果 < 512 KB、幂等。
 3. \`window.aawStore\` — \`await set(k,v) / get(k) / delete(k) / keys()\`，按工具+用户隔离、上限 5 MB、**跨重启保留**。
 4. \`window.aawFiles\` — \`await open({accept})\` 返回 \`{name,text}|null\`；\`await save(name, text)\` 弹保存框。
+5. \`window.aawClipboard\` — \`await readText()\` 取当前剪切板文本（没有文本返回空串）；\`await writeText(text)\` 写入，上限 1 MB。剪切板历史、复制后清洗、一键复制结果都靠它。
 
 联网可用（http/https），但清单必须声明 \`permissions.network: true\`（R8）。
+\`navigator.clipboard\` 也能用，但它要求用户手势、在 AI 执行的动作里拿不到；优先用 \`aawClipboard\`。
 \`localStorage\` 也能用，但它活在内存分区，AAW 重启会清空——要留存就走 \`aawStore\`（R6）。
+读剪切板只在用户点击或动作被显式调用时做，不要在页面一加载就静默读取。
 窗口宽度不固定（最小约 360px），布局别写死宽度（R7）。
 
 ## 红线
@@ -134,6 +150,7 @@ ${ruleTable()}
 - [ ] 没有任何外部 \`src\` / \`href\`
 - [ ] 每个 action 在 \`aawActions\` 里都有同名函数，界面按钮复用同一函数
 - [ ] 需要留存的数据走 \`aawStore\`
+- [ ] 用到剪切板时是用户主动触发的，不是打开就偷偷读
 - [ ] 没有硬编码密钥
 - [ ] 会联网就声明了 \`permissions.network\`
 - [ ] 空输入 / 超长输入 / 非法输入都有提示，不是白屏
@@ -152,7 +169,7 @@ export function toolGuideSkill(): string {
   return `---
 name: tool-dev
 version: "1.0.0"
-description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具定义、项目结构、清单字段、运行时能力、红线与交付前自检。
+description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、五个运行时能力入口、红线与交付前自检。
 ---
 
 ${toolGuide({ id: "<工具 id>", name: "<工具名>" })}

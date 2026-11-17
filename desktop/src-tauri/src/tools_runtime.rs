@@ -2,7 +2,7 @@ use base64::Engine;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, mpsc};
@@ -34,6 +34,9 @@ pub fn tools_write_archive(
 pub struct LauncherRoutes {
     pending: Mutex<HashMap<String, mpsc::SyncSender<Option<String>>>>,
     endpoint: Mutex<Option<(u16, String)>>,
+    /// 常驻工具宿主主动建立并保持的命令连接；Rust 往里写意图，不再为转发
+    /// 参数而启动第二个 Electron 进程。
+    host: Mutex<Option<TcpStream>>,
 }
 
 #[tauri::command]
@@ -97,6 +100,13 @@ fn bridge(app: &AppHandle) -> Result<(u16, String), String> {
             if value["token"].as_str() != Some(&secret) {
                 continue;
             }
+            // 常驻宿主注册命令通道：把连接留下，后续 Rust 直接往里写意图。
+            if value["kind"].as_str() == Some("host") {
+                if let Ok(mut host) = app.state::<LauncherRoutes>().host.lock() {
+                    *host = Some(stream);
+                }
+                continue;
+            }
             let Some(id) = value["requestId"]
                 .as_str()
                 .filter(|id| !id.is_empty() && id.len() <= 64)
@@ -113,6 +123,14 @@ fn bridge(app: &AppHandle) -> Result<(u16, String), String> {
             if let Ok(mut pending) = app.state::<LauncherRoutes>().pending.lock() {
                 pending.insert(id.to_owned(), sender);
             }
+            // 先叫醒主窗口再等前端处理。原来要等 open() 全部完成才 show，
+            // 用户看到的是"点了没反应，几秒后窗口突然弹出来"；而且后台
+            // WebView 的 JS 会被 Chromium 节流，前台窗口反而处理得更快。
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
             let sent = app.emit_to(
                 "main",
                 "aaw://launcher-open",
@@ -127,13 +145,6 @@ fn bridge(app: &AppHandle) -> Result<(u16, String), String> {
             };
             if let Ok(mut pending) = app.state::<LauncherRoutes>().pending.lock() {
                 pending.remove(id);
-            }
-            if error.is_none() {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
             }
             let _ = writeln!(
                 stream,
@@ -173,7 +184,42 @@ fn executable(app: &AppHandle) -> Result<PathBuf, String> {
     Err("Electron 工具宿主尚未构建。开发版请先运行 npm run tools:build。".into())
 }
 
+/// 把意图写给常驻工具宿主，省掉"为转发参数而启动第二个 Electron 进程"。
+///
+/// 宿主启动时就用同一个 token 注册了这条连接；写失败说明连接已经断了，
+/// 交给 `launch()` 清掉并退回原来的 spawn 转发，功能不会丢。
+fn send_command(app: &AppHandle, option: Option<&str>) -> Result<(), String> {
+    let state = app.state::<LauncherRoutes>();
+    let token = {
+        let endpoint = state.endpoint.lock().map_err(|e| e.to_string())?;
+        endpoint
+            .as_ref()
+            .map(|(_, token)| token.clone())
+            .ok_or("启动器通道尚未建立。")?
+    };
+    let command = option.unwrap_or("--aaw-launcher");
+    let mut host = state.host.lock().map_err(|e| e.to_string())?;
+    let stream = host.as_mut().ok_or("工具宿主尚未就绪。")?;
+    let payload = serde_json::json!({ "token": token, "command": command });
+    let line = format!("{}\n", payload);
+    stream
+        .write_all(line.as_bytes())
+        .map_err(|error| error.to_string())?;
+    stream.flush().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn launch(app: &AppHandle, option: Option<&str>) -> Result<(), String> {
+    // 宿主已经常驻时直接下发意图。起第二个 Electron 只为转发参数，是这几处
+    // 延迟里最贵的一段（完整 Chromium 冷启动，1~2 秒）。
+    match send_command(app, option) {
+        Ok(()) => return Ok(()),
+        Err(_) => {
+            if let Ok(mut host) = app.state::<LauncherRoutes>().host.lock() {
+                *host = None;
+            }
+        }
+    }
     let mut command = Command::new(executable(app)?);
     let root = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     let (port, token) = bridge(app)?;

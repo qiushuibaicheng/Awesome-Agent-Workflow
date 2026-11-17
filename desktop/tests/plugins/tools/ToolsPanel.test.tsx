@@ -103,7 +103,7 @@ it("offers opening the project directory and re-checking once AI gave up", () =>
     verify,
   };
   render(<ToolsPanel service={service} host={host} workshop={workshop} />);
-  fireEvent.click(screen.getByRole("button", { name: /制作工具/ }));
+  fireEvent.click(screen.getByRole("button", { name: /开发工具/ }));
   expect(screen.getByText(/AI 试了 3 轮也没修好/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "打开项目目录" }));
   expect(openDir).toHaveBeenCalledWith();

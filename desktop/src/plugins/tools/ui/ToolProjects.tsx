@@ -26,13 +26,14 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
   if (projectsLoading && !projects.length)
     return <p className="build-hint">正在读取工具项目…</p>;
   if (!projects.length)
-    return <div className="build-empty">
-      <WrenchIcon className="size-6 text-info" />
-      <div>
+    return <section className="build-empty" aria-label="还没有工具项目">
+      <span className="build-empty-mark" aria-hidden="true"><WrenchIcon /></span>
+      <div className="build-empty-copy">
         <strong>还没有工具项目</strong>
-        <p>在上面写一句需求，AI 会在一个真实目录里把工具做出来。</p>
+        <p>在上面写一句需求，AI 会在一个真实目录里把工具做出来；之后每个项目都能继续改、预览、重新安装。</p>
       </div>
-    </div>;
+      <div className="build-empty-cues" aria-hidden="true"><span>manifest.json</span><span>index.html</span><span>AGENTS.md</span></div>
+    </section>;
 
   async function commitRename() {
     if (!renaming) return;

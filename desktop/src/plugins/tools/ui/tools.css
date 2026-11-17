@@ -82,64 +82,73 @@
   .aaw-tools .tools-content { padding: 16px 14px; }
   .aaw-tools .tool-card { padding: 14px; }
 }
-.aaw-tools .management-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--color-line); color: var(--color-ink-subtle); font-size: 12px; }
-.aaw-tools .management-nav button { padding: 5px 0; }
-.aaw-tools .management-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; }
-.aaw-tools .management-scroll > * { max-width: 860px; margin-inline: auto; }
-.aaw-tools .management-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 4px 0 26px; }
-.aaw-tools .management-icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 17px; color: #97a8f7; background: #7284cf1f; border: 1px solid #7284cf33; font-size: 26px; font-weight: 600; line-height: 1; }
+/* ── 插件管理：分组设置排版，不是四张卡片摞起来 ───────────────────────── */
+.aaw-tools .management-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--color-line); color: var(--color-ink-subtle); font-size: 12px; }
+.aaw-tools .management-nav button { padding: 4px 0; }
+.aaw-tools .management-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px 28px; }
+.aaw-tools .management-inner { max-width: 900px; margin-inline: auto; }
+.aaw-tools .management-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 2px 0 18px; }
+.aaw-tools .management-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; color: #97a8f7; background: #7284cf1f; border: 1px solid #7284cf33; font-size: 21px; font-weight: 600; line-height: 1; flex: none; }
 .aaw-tools .management-icon.tone-1 { background: #9670ce24; color: #c7abea; border-color: #9670ce3d; }
 .aaw-tools .management-icon.tone-2 { background: #cf895024; color: #e0b48c; border-color: #cf89503d; }
 .aaw-tools .management-icon.tone-3 { background: #4f97b424; color: #9acfe2; border-color: #4f97b43d; }
-.aaw-tools .management-hero > div { min-width: 0; flex: 1; }
-.aaw-tools .management-hero h2 { font-size: 21px; font-weight: 650; color: var(--color-ink); overflow-wrap: anywhere; }
-.aaw-tools .management-hero p { margin-top: 6px; font-size: 12px; color: var(--color-ink-subtle); }
+.aaw-tools .management-hero-copy { min-width: 0; flex: 1; }
+.aaw-tools .management-hero h2 { font-size: 18px; font-weight: 650; color: var(--color-ink); overflow-wrap: anywhere; }
+.aaw-tools .management-hero p { margin-top: 3px; font-size: 12px; color: var(--color-ink-subtle); }
 .aaw-tools .management-hero p span { margin-inline: 6px; }
-.aaw-tools .management-hero button { min-height: 34px; padding: 7px 14px; border-radius: 9px; font-size: 13px; }
-.aaw-tools .management-card { padding: 22px; border: 1px solid var(--color-line); border-radius: 15px; background: var(--color-surface); margin-bottom: 16px; }
-.aaw-tools .management-section-title { display: flex; gap: 12px; align-items: start; justify-content: space-between; margin-bottom: 20px; }
-.aaw-tools .management-section-title h3, .aaw-tools .management-remove h3 { font-weight: 600; font-size: 14px; color: var(--color-ink); }
-.aaw-tools .management-section-title p, .aaw-tools .management-remove p { font-size: 12px; color: var(--color-ink-subtle); margin-top: 5px; line-height: 1.7; }
-.aaw-tools .management-badge { flex: none; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--color-line); color: var(--color-ink-subtle); font-size: 11px; }
-.aaw-tools .management-fields { display: grid; gap: 20px; }
-.aaw-tools .management-field { display: grid; gap: 9px; }
-.aaw-tools .management-field label { font-size: 13px; font-weight: 550; color: var(--color-ink); }
-.aaw-tools .management-field small { display: block; font-size: 12px; font-weight: 400; color: var(--color-ink-subtle); margin-top: 5px; }
-.aaw-tools .management-field input:not([type=checkbox]) { min-width: 0; width: 100%; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 9px; font-size: 13px; color: var(--color-ink); background: var(--color-base); }
-.aaw-tools .management-field input:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; }
-.aaw-tools .management-field.is-toggle { grid-template-columns: 1fr auto; align-items: center; }
-.aaw-tools .management-field input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--color-info); }
-.aaw-tools .management-form-footer { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-line); }
-.aaw-tools .management-form-footer > span, .aaw-tools .management-note { font-size: 11px; color: var(--color-ink-subtle); line-height: 1.7; }
-.aaw-tools .management-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.aaw-tools .management-actions button { padding: 7px 12px; border-radius: 8px; font-size: 12px; min-height: 32px; }
-.aaw-tools .management-empty { display: flex; align-items: center; gap: 14px; padding: 14px 0 8px; color: var(--color-ink-subtle); }
-.aaw-tools .management-empty strong { font-size: 13px; color: var(--color-ink); font-weight: 500; }
-.aaw-tools .management-empty p { margin-top: 6px; font-size: 12px; line-height: 1.7; }
-.aaw-tools .management-files { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; color: var(--color-ink-subtle); font-size: 11px; }
-.aaw-tools .management-files code { border-radius: 5px; background: var(--color-base); padding: 5px 8px; }
-.aaw-tools .management-files span { align-self: center; }
-.aaw-tools .management-note { margin-top: 12px; }
-.aaw-tools .management-meta { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 12px; font-size: 12px; }
-.aaw-tools .management-meta dt { color: var(--color-ink-subtle); }
-.aaw-tools .management-meta dd { color: var(--color-ink); overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px; }
-.aaw-tools .management-remove { padding: 10px 3px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; justify-content: space-between; }
-.aaw-tools .remove-button { color: var(--color-danger-ink); font-size: 12px; }
-.aaw-tools .management-feedback { padding: 12px 16px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-info-bg); color: var(--color-ink-subtle); font-size: 12px; margin-bottom: 16px; overflow-wrap: anywhere; }
+.aaw-tools .management-hero button { min-height: 32px; padding: 6px 13px; border-radius: 8px; font-size: 12px; }
+.aaw-tools .management-feedback { padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-info-bg); color: var(--color-ink-subtle); font-size: 12px; margin-bottom: 14px; overflow-wrap: anywhere; }
 .aaw-tools .management-feedback.is-error { color: var(--color-danger-ink); }
-.aaw-tools .management-feedback .management-actions { margin-top: 10px; }
-/* AI 动作列表：每个动作用一条命令呈现，人机共用的"同一件事"要能被看见。 */
-.aaw-tools .management-actions-list { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
-.aaw-tools .management-action { padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-base); }
-.aaw-tools .management-action-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.aaw-tools .management-action-head code { font-size: 12px; font-weight: 600; color: var(--color-ink); }
-.aaw-tools .management-action p { margin-top: 6px; font-size: 12px; color: var(--color-ink-subtle); line-height: 1.7; }
-.aaw-tools .management-command { display: block; margin-top: 8px; padding: 7px 10px; border-radius: 7px; background: var(--color-surface); color: var(--color-ink-subtle); font-family: Consolas, "Cascadia Code", monospace; font-size: 11px; overflow-wrap: anywhere; }
+.aaw-tools .management-feedback .mg-actions { margin-top: 8px; }
+/* 一行一节：左列是分组名，右列是内容。细线比卡片边框更轻，视线不用反复跳。 */
+.aaw-tools .mg-row { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 22px; padding: 16px 0; border-top: 1px solid var(--color-line); }
+.aaw-tools .mg-row.is-last { border-bottom: 1px solid var(--color-line); }
+.aaw-tools .mg-label { min-width: 0; }
+.aaw-tools .mg-label-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.aaw-tools .mg-label-head h3 { font-size: 13px; font-weight: 600; color: var(--color-ink); }
+.aaw-tools .mg-label > p { margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
+.aaw-tools .mg-badge { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-line); color: var(--color-ink-subtle); font-size: 10px; }
+.aaw-tools .mg-content { min-width: 0; }
+.aaw-tools .mg-fields { display: grid; gap: 12px; }
+.aaw-tools .mg-field { display: grid; gap: 6px; }
+.aaw-tools .mg-field label { font-size: 12px; font-weight: 550; color: var(--color-ink); }
+.aaw-tools .mg-field small { display: block; font-size: 11px; font-weight: 400; color: var(--color-ink-subtle); margin-top: 3px; }
+.aaw-tools .mg-field input:not([type=checkbox]) { min-width: 0; width: 100%; padding: 7px 10px; border: 1px solid var(--color-line); border-radius: 8px; font-size: 12px; color: var(--color-ink); background: var(--color-base); }
+.aaw-tools .mg-field input:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; }
+.aaw-tools .mg-field.is-toggle { grid-template-columns: 1fr auto; align-items: center; }
+.aaw-tools .mg-field input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--color-info); }
+.aaw-tools .mg-form-footer { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.aaw-tools .mg-form-footer > span { font-size: 11px; color: var(--color-ink-subtle); }
+.aaw-tools .mg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.aaw-tools .mg-actions button { padding: 5px 11px; border-radius: 7px; font-size: 12px; min-height: 30px; }
+.aaw-tools .mg-empty { margin: 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--color-ink) 4%, transparent); font-size: 12px; line-height: 1.7; color: var(--color-ink-subtle); }
+.aaw-tools .mg-note { margin-top: 10px; font-size: 11px; line-height: 1.7; color: var(--color-ink-subtle); }
+.aaw-tools .mg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: 11px; color: var(--color-ink-subtle); }
+.aaw-tools .mg-files code { padding: 3px 7px; border-radius: 5px; background: var(--color-surface); color: var(--color-ink); }
+.aaw-tools .mg-files span { align-self: center; }
+/* AI 动作：一条命令一行，人机共用的"同一件事"要能被看见。 */
+.aaw-tools .mg-actions-list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.aaw-tools .mg-action { padding: 9px 11px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-surface); }
+.aaw-tools .mg-action-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.aaw-tools .mg-action-head code { font-size: 12px; font-weight: 600; color: var(--color-ink); }
+.aaw-tools .mg-action p { margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
+.aaw-tools .mg-command { display: block; margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: var(--color-base); color: var(--color-ink-subtle); font-family: Consolas, "Cascadia Code", monospace; font-size: 11px; overflow-wrap: anywhere; }
+.aaw-tools .mg-meta { margin: 0; }
+.aaw-tools .mg-meta > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px dashed var(--color-line); font-size: 12px; }
+.aaw-tools .mg-meta > div:last-child { border-bottom: 0; }
+.aaw-tools .mg-meta dt { flex: none; color: var(--color-ink-subtle); }
+.aaw-tools .mg-meta dd { margin: 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--color-ink); overflow-wrap: anywhere; text-align: right; }
+.aaw-tools .mg-meta dd code, .aaw-tools .mg-source { font-family: Consolas, monospace; font-size: 11px; }
+.aaw-tools .mg-remove { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+.aaw-tools .remove-button { color: var(--color-danger-ink); font-size: 12px; }
+@container (max-width: 560px) {
+  .aaw-tools .mg-row { grid-template-columns: 1fr; gap: 10px; padding: 14px 0; }
+  .aaw-tools .mg-label > p { margin-top: 2px; }
+}
 @container (max-width: 420px) {
-  .aaw-tools .management-scroll { padding: 18px 14px; }
-  .aaw-tools .management-card { padding: 17px; }
-  .aaw-tools .management-hero > div { flex-basis: calc(100% - 80px); }
-  .aaw-tools .management-hero h2 { font-size: 18px; }
+  .aaw-tools .management-scroll { padding: 16px 14px 24px; }
+  .aaw-tools .management-hero-copy { flex-basis: calc(100% - 70px); }
+  .aaw-tools .management-hero h2 { font-size: 17px; }
   .aaw-tools .management-nav { padding-inline: 14px; }
 }
 
@@ -195,7 +204,7 @@
 .aaw-tools .preview-log.is-error { color: var(--color-danger-ink); }
 .aaw-tools .preview-logs-empty { padding: 8px 0; color: var(--color-ink-subtle); }
 
-/* ── 新建工具（一行输入，不占首屏）───────────────────────────────────── */
+/* ── 开发工具表单（一行输入，不占首屏）───────────────────────────────── */
 .aaw-tools .build-new { border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-surface); padding: 12px 14px; }
 .aaw-tools .build-new-label { display: block; font-size: 13px; font-weight: 600; color: var(--color-ink); margin-bottom: 8px; }
 .aaw-tools .build-new textarea { width: 100%; resize: vertical; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-base); color: var(--color-ink); font: inherit; font-size: 13px; line-height: 1.6; }
@@ -256,9 +265,49 @@
 .aaw-tools .build-missing { padding: 1px 6px; border-radius: 999px; border: 1px solid var(--color-line); font-style: normal; }
 /* "项目改了但没重装"是长句子，做成胶囊会撑坏一行；给普通文字 + 警示色。 */
 .aaw-tools .build-drift { font-style: normal; color: var(--color-warning-ink, var(--color-info)); }
-.aaw-tools .build-empty { display: flex; gap: 10px; align-items: flex-start; padding: 16px; border: 1px dashed var(--color-line-strong); border-radius: 12px; color: var(--color-ink-subtle); }
-.aaw-tools .build-empty strong { display: block; font-size: 13px; color: var(--color-ink); }
-.aaw-tools .build-empty p { margin-top: 3px; font-size: 12px; }
+/* ── 空状态：不是"什么都没有"的占位符，而是唯一一次讲清价值的机会 ─────── */
+.aaw-tools .build-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--color-line); border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, var(--color-info) 7%, var(--color-surface)), var(--color-surface)); }
+.aaw-tools .build-empty-mark { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; color: var(--color-info); background: color-mix(in srgb, var(--color-info) 15%, transparent); }
+.aaw-tools .build-empty-mark svg { width: 19px; height: 19px; }
+.aaw-tools .build-empty-copy { min-width: 0; flex: 1 1 220px; }
+.aaw-tools .build-empty-copy strong { display: block; font-size: 13px; color: var(--color-ink); }
+.aaw-tools .build-empty-copy p { margin-top: 4px; font-size: 11px; line-height: 1.7; color: var(--color-ink-subtle); }
+.aaw-tools .build-empty-cues { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.aaw-tools .build-empty-cues span { padding: 3px 8px; border-radius: 6px; border: 1px dashed var(--color-line); font-family: Consolas, monospace; font-size: 10px; color: var(--color-ink-subtle); }
+
+/* 已安装列表空：柔和光晕 + 三步预期 + 明确主按钮，替代原来的虚线框和一行灰字。 */
+.aaw-tools .tools-empty { position: relative; overflow: hidden; padding: 28px 22px 22px; border: 1px solid var(--color-line); border-radius: 16px; text-align: center;
+  background: radial-gradient(120% 90% at 50% -20%, color-mix(in srgb, var(--color-info) 15%, transparent), transparent 70%),
+    linear-gradient(160deg, color-mix(in srgb, var(--color-surface) 92%, var(--color-info)), var(--color-surface));
+}
+.aaw-tools .tools-empty-hero { position: relative; display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 14px; }
+.aaw-tools .tools-empty-glow { position: absolute; inset: -14px; border-radius: 50%; background: color-mix(in srgb, var(--color-info) 18%, transparent); filter: blur(14px); }
+.aaw-tools .tools-empty-mark { position: relative; display: grid; place-items: center; width: 54px; height: 54px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--color-info) 35%, var(--color-line)); background: color-mix(in srgb, var(--color-info) 15%, var(--color-surface)); color: var(--color-info); }
+.aaw-tools .tools-empty-mark svg { width: 26px; height: 26px; }
+.aaw-tools .tools-empty-title { font-size: 16px; font-weight: 650; line-height: 1.5; color: var(--color-ink); }
+.aaw-tools .tools-empty-lead { max-width: 430px; margin: 8px auto 0; font-size: 12px; line-height: 1.8; color: var(--color-ink-subtle); }
+.aaw-tools .tools-empty-steps { list-style: none; padding: 0; margin: 18px auto 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 540px; text-align: left; }
+.aaw-tools .tools-empty-steps li { display: flex; gap: 9px; padding: 10px; border: 1px solid var(--color-line); border-radius: 10px; background: color-mix(in srgb, var(--color-base) 55%, transparent); }
+.aaw-tools .tools-empty-steps li > span { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: color-mix(in srgb, var(--color-info) 18%, transparent); color: var(--color-info); font-size: 11px; font-weight: 700; }
+.aaw-tools .tools-empty-steps strong { display: block; font-size: 12px; font-weight: 600; line-height: 1.5; color: var(--color-ink); }
+.aaw-tools .tools-empty-steps small { display: block; margin-top: 3px; font-size: 11px; line-height: 1.5; color: var(--color-ink-subtle); }
+.aaw-tools .tools-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
+.aaw-tools .tools-empty-primary { min-height: 34px; padding: 7px 16px; }
+.aaw-tools .tools-empty-foot { margin-top: 14px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
+
+/* 搜索无结果：一行灰字太容易被当成"页面坏了"，给出原因和一个能点的退路。 */
+.aaw-tools .tools-search-empty { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px dashed var(--color-line-strong); border-radius: 12px; color: var(--color-ink-subtle); }
+.aaw-tools .tools-search-empty > span { font-size: 20px; line-height: 1; color: var(--color-info); }
+.aaw-tools .tools-search-empty > div { flex: 1; min-width: 0; }
+.aaw-tools .tools-search-empty strong { display: block; font-size: 13px; color: var(--color-ink); }
+.aaw-tools .tools-search-empty p { margin-top: 3px; font-size: 11px; line-height: 1.6; }
+.aaw-tools .tools-search-empty button { flex: none; font-size: 12px; }
+@container (max-width: 460px) {
+  .aaw-tools .tools-empty { padding: 22px 14px 18px; }
+  .aaw-tools .tools-empty-steps { grid-template-columns: 1fr; }
+  .aaw-tools .tools-empty-steps li { padding: 8px 10px; }
+  .aaw-tools .tools-search-empty { flex-wrap: wrap; }
+}
 
 /* 改名：两个字段排成一行，窄面板下自动折行（不写死宽度，见 R7）。 */
 .aaw-tools .build-rename { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; width: 100%; }
