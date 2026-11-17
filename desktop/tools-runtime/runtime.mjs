@@ -27,7 +27,7 @@ const policy = [
 ].join("; ");
 const limit = 512 * 1024;
 /** 只拦本地/特权协议；http(s) 由 CSP 管。 */
-const blockedScheme = /^(?:file|chrome|chrome-extension|chrome-untrusted|devtools|javascript|filesystem|blob:file):/;
+const blockedScheme = /^(?:file|chrome|chrome-extension|chrome-untrusted|devtools|javascript|filesystem):/;
 
 protocol.registerSchemesAsPrivileged([{ scheme, privileges: { standard: true, secure: true } }]);
 
