@@ -31,7 +31,8 @@ it("keeps unsaved settings until source editing is explicitly confirmed", () => 
   const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
   const host = { isNative: () => true } as unknown as HostService;
   render(<ToolsPanel service={service} host={host} />);
-  fireEvent.click(screen.getByRole("button", { name: "管理 JSON 格式化" }));
+  openCardMenu();
+  fireEvent.click(screen.getByRole("menuitem", { name: "管理" }));
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "编辑工具包" }));
   expect(screen.getByRole("alert")).toHaveTextContent("未保存");
@@ -42,6 +43,11 @@ it("keeps unsaved settings until source editing is explicitly confirmed", () => 
   expect(screen.getByLabelText("工具包源码")).toBeVisible();
   expect(service.saveSettings).not.toHaveBeenCalled();
 });
+
+/** 卡片上只剩「打开」与「⋯」，管理 / 导出 / 卸载都收进了菜单。 */
+function openCardMenu(name = "JSON 格式化") {
+  fireEvent.click(screen.getByRole("button", { name: `更多操作：${name}` }));
+}
 
 it("opens Electron directly, routes Manage separately, saves settings and exports source ZIP", async () => {
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool, settings: { indent: 2 } }]);
@@ -54,7 +60,8 @@ it("opens Electron directly, routes Manage separately, saves settings and export
   fireEvent.click(screen.getByRole("button", { name: "打开 JSON 格式化" }));
   await waitFor(() => expect(open).toHaveBeenCalledWith(sampleTool.id));
   expect(document.querySelector("iframe")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "管理 JSON 格式化" }));
+  openCardMenu();
+  fireEvent.click(screen.getByRole("menuitem", { name: "管理" }));
   expect(screen.getByRole("heading", { name: "自定义设置" })).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));

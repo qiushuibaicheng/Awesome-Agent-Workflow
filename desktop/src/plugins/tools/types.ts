@@ -9,6 +9,13 @@ export interface ToolPackage {
   readonly id: string;
   readonly name: string;
   readonly version: string;
+  /**
+   * 卡片与小窗上显示的 1–2 个字符（emoji 或字母）。缺省取名称首字。
+   *
+   * 加它是因为所有个人工具此前共用同一个图标，只能靠 4 色循环区分；这是
+   * 可选字段，旧清单不受影响。
+   */
+  readonly icon?: string;
   readonly html: string;
   readonly actions?: readonly ToolAction[];
   readonly settingsSchema?: readonly ToolSetting[];

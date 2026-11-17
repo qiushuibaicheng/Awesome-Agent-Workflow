@@ -5,6 +5,8 @@ export const sampleTool: ToolPackage = {
   id: "json-formatter",
   name: "JSON 格式化",
   version: "1.0.0",
+  // 示例顺便演示可选字段 icon：卡片与小窗用它替代默认的工具图标。
+  icon: "J",
   settingsSchema: [{ id: "indent", type: "number", label: "缩进空格数", description: "格式化 JSON 时每一级使用的空格数。", default: 2, min: 0, max: 8 }],
   actions: [{
     id: "format",

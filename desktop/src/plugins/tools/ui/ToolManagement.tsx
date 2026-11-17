@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { btnGhost, btnPrimary, btnSecondary, Listbox } from "../../../shared/ui/controls.tsx";
-import { WrenchIcon, SquareTerminalIcon } from "../../../shared/ui/icons.tsx";
+import { DangerButton, btnGhost, btnPrimary, btnSecondary, Listbox } from "../../../shared/ui/controls.tsx";
+import { CopyButton } from "../../../shared/ui/CopyButton.tsx";
+import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
 import type { PersonalTool, ToolSettings } from "../types.ts";
 import { resolveToolSettings } from "../runtime/settings.ts";
+import { toolGlyph, toneOf } from "./mark.ts";
 
 export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onEdit, onSave, onRemove, busy, feedback }: {
   entry: PersonalTool; onBack: () => void; onOpen: () => void; onExport: () => void; onUpdate: (file: File) => void;
@@ -26,12 +28,12 @@ export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onEd
     <header className="management-nav"><button type="button" className={btnGhost} onClick={() => requestAction("返回工具中心", onBack, "放弃修改并返回")}>← 返回工具中心</button><span>插件管理</span></header>
     <div className="management-scroll">
       <div className="management-hero">
-        <span className="management-icon"><WrenchIcon className="size-7" /></span>
+        <span aria-hidden="true" className={`management-icon tone-${toneOf(tool.id)}`}>{toolGlyph(tool)}</span>
         <div><h2>{tool.name}</h2><p>v{tool.version} <span>·</span> 个人插件</p></div>
         <button type="button" className={btnPrimary} onClick={onOpen} disabled={busy}>打开插件 ↗</button>
       </div>
       {feedback && <p className={`management-feedback ${feedback.error ? "is-error" : ""}`} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
-      {pending && <div className="management-feedback" role="alert"><p>还有未保存的设置，继续{pending.label}将放弃这些修改。</p><div className="management-actions"><button ref={continueEditing} type="button" className={btnSecondary} onClick={() => setPending(undefined)}>继续编辑</button><button type="button" className={btnGhost} onClick={() => { setPending(undefined); pending.run(); }}>{pending.confirmLabel}</button></div></div>}
+      {pending && <div className="management-feedback" role="alert"><p>还有未保存的设置，继续{pending.label}将放弃这些修改。</p><div className="management-actions"><button ref={continueEditing} type="button" className={btnSecondary} onClick={() => setPending(undefined)}>继续编辑</button><DangerButton onClick={() => { setPending(undefined); pending.run(); }}>{pending.confirmLabel}</DangerButton></div></div>}
       <section className="management-card" aria-labelledby="settings-title">
         <div className="management-section-title"><div><h3 id="settings-title">自定义设置</h3><p>为你的使用习惯调整插件</p></div><span className="management-badge">{fields.length} 项</span></div>
         {fields.length ? <form onSubmit={(event) => { event.preventDefault(); onSave(values); }}>
@@ -52,8 +54,20 @@ export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onEd
         <p className="management-note">导出包含设置声明与默认值，不包含你的个人设置。</p>
         <input ref={picker} type="file" accept=".zip,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) requestAction("更新源码", () => onUpdate(file)); }} />
       </section>
+      <section className="management-card" aria-labelledby="actions-title">
+        <div className="management-section-title"><div><h3 id="actions-title">AI 动作</h3><p>你和 AI 走的是同一个函数：界面上的操作与下面这些命令等价</p></div><span className="management-badge">{tool.actions?.length ?? 0} 个</span></div>
+        {tool.actions?.length ? <ul className="management-actions-list">{tool.actions.map((action) => {
+          const command = `npm run tools -- run ${tool.id} ${action.id}`;
+          return <li key={action.id} className="management-action">
+            <div className="management-action-head"><code>{action.id}</code><CopyButton getText={() => command} label="复制命令" /></div>
+            <p>{action.description}</p>
+            <code className="management-command">{command}</code>
+          </li>;
+        })}</ul> : <div className="management-empty"><SquareTerminalIcon className="size-6" /><div><strong>此插件暂未声明动作</strong><p>声明 actions 后，AI 就能通过 CLI 调用与界面相同的逻辑。</p></div></div>}
+        {!!tool.actions?.length && <p className="management-note">参数通过标准输入或 <code>--input-file=&lt;路径&gt;</code> 传入。</p>}
+      </section>
       <section className="management-card"><div className="management-section-title"><div><h3>插件信息</h3><p>运行能力与标识</p></div></div><dl className="management-meta"><dt>插件 ID</dt><dd><code>{tool.id}</code></dd><dt>运行方式</dt><dd>Electron 独立窗口</dd><dt>AI 接口</dt><dd><SquareTerminalIcon className="size-3.5" />{tool.actions?.length ? `${tool.actions.length} 个 CLI 动作` : "暂未声明"}</dd></dl></section>
-      <section className="management-remove"><div><h3>卸载插件</h3><p>移除本账号中的插件与设置，可先导出源码保留项目。</p></div>{confirmRemove ? <div className="management-actions"><button type="button" className={btnGhost} onClick={() => setConfirmRemove(false)}>取消</button><button type="button" className={`${btnSecondary} remove-button`} onClick={onRemove}>确认卸载</button></div> : <button type="button" className={`${btnGhost} remove-button`} onClick={() => setConfirmRemove(true)}>卸载</button>}</section>
+      <section className="management-remove"><div><h3>卸载插件</h3><p>移除本账号中的插件与设置，可先导出源码保留项目。</p></div>{confirmRemove ? <div className="management-actions"><button type="button" className={btnGhost} onClick={() => setConfirmRemove(false)}>取消</button><DangerButton onClick={onRemove}>确认卸载</DangerButton></div> : <button type="button" className={`${btnGhost} remove-button`} onClick={() => setConfirmRemove(true)}>卸载</button>}</section>
     </div>
   </section>;
 }

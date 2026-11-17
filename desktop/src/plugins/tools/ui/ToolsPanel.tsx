@@ -1,14 +1,18 @@
 import { useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useStore } from "zustand";
-import { btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
+import { DangerButton, btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
+import { ContextMenu } from "../../../shared/ui/ContextMenu.tsx";
+import type { ContextMenuEntry } from "../../../shared/ui/ContextMenu.tsx";
 import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
+import { useHeaderMenu } from "../../../shared/ui/useHeaderMenu.ts";
 import type { HostService } from "../../host/service.ts";
 import { parseToolPackage } from "../runtime/package.ts";
 import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
 import { toolSettingsScript } from "../runtime/settings.ts";
 import { ToolDeveloper } from "./ToolDeveloper.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
+import { toolGlyph, toneOf } from "./mark.ts";
 import type { ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
 import { sampleTool } from "./sample.ts";
@@ -27,6 +31,7 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   const [removing, setRemoving] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; error?: true }>();
   const [busy, setBusy] = useState(false);
+  const cardMenu = useHeaderMenu();
   const picker = useRef<HTMLInputElement>(null);
   const active = view.kind === "preview" ? view.tool : undefined;
   const managed = view.kind === "manage" ? tools.find(({ package: tool }) => tool.id === view.id) : undefined;
@@ -102,6 +107,22 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
     setView({ kind: "library" });
   }
 
+  /**
+   * 卡片上只留一个主操作（打开），其余收进「⋯」：之前 5 个按钮平铺，扫视
+   * 成本高，而且「卸载」和「导出」的视觉权重完全一样。
+   */
+  function openCardMenu(event: ReactMouseEvent<HTMLButtonElement>, tool: ToolPackage) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const entries: ContextMenuEntry[] = [
+      { id: "manage", label: "管理", onSelect: () => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); } },
+      ...(development ? [{ id: "edit", label: "编辑", onSelect: () => edit(tool) }] : []),
+      { id: "export", label: "导出源码", disabled: busy, onSelect: () => void exportTool(tool) },
+      { type: "separator" },
+      { id: "remove", label: "卸载", danger: true, onSelect: () => setRemoving(tool.id) },
+    ];
+    cardMenu.open(tool.id, `${tool.name} 操作`, entries, { x: rect.right, y: rect.bottom + 4, side: "bottom", align: "end" });
+  }
+
   if (managed) return <ToolManagement key={`${managed.package.id}:${JSON.stringify(managed.settings)}:${JSON.stringify(managed.package.settingsSchema)}`} entry={managed} busy={busy} feedback={feedback}
     onBack={() => { setView({ kind: "library" }); setFeedback(undefined); }}
     onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)} onEdit={() => edit(managed.package)}
@@ -173,32 +194,31 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
         )}
         {tools.length > 0 && <label className="tools-search"><span aria-hidden="true">⌕</span><input aria-label="搜索已安装工具" placeholder="搜索你的工具…" value={search} onChange={(event) => setSearch(event.target.value)} /><span>{tools.length}</span></label>}
         <ul aria-label="已安装工具" className="tools-grid">
-          {tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(search.trim().toLowerCase())).map(({ package: tool }, index) => (
+          {tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(search.trim().toLowerCase())).map(({ package: tool }) => (
             <li key={tool.id} className="tool-card flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-info/35">
-              <span aria-hidden="true" className={`tool-symbol tone-${index % 4} grid size-9 shrink-0 place-items-center rounded-lg bg-info/10 text-info`}><WrenchIcon className="size-5" /></span>
+              {/* 图标与底色都由工具 id 决定，与小窗完全一致：字形优先，缺省用名称首字。 */}
+              <span aria-hidden="true" className={`tool-symbol tone-${toneOf(tool.id)}`}>{toolGlyph(tool)}</span>
               <div className="mr-auto min-w-[6rem] flex-1">
                 <h3 className="break-words text-ui-base font-semibold text-ink">{tool.name}</h3>
                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-ui-sm text-ink-subtle">
                   <span>v{tool.version}</span>
-                  {!!tool.actions?.length && <span className="inline-flex items-center gap-1 text-info"><SquareTerminalIcon className="size-3.5" />支持 CLI</span>}
+                  {!!tool.actions?.length && <span className="inline-flex items-center gap-1 text-info"><SquareTerminalIcon className="size-3.5" />{tool.actions.length} 个动作 · AI 可调用</span>}
                 </p>
               </div>
               {removing === tool.id ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-ui-sm text-ink-subtle">卸载此工具？</span>
-                  <button type="button" className={btnSecondary} onClick={() => setRemoving(undefined)}>取消</button>
-                  <button type="button" className={btnGhost} onClick={() => run(() => {
+                  <button type="button" className={btnGhost} onClick={() => setRemoving(undefined)}>取消</button>
+                  {/* 危险动作给危险配色，取消退回中性：之前两者权重是反的。 */}
+                  <DangerButton onClick={() => run(() => {
                     service.remove(tool.id);
                     setRemoving(undefined);
-                  })}>确认卸载</button>
+                  })}>确认卸载</DangerButton>
                 </div>
               ) : (
                 <div className="tool-actions flex flex-wrap gap-1">
                   <button type="button" className={btnPrimary} aria-label={`打开 ${tool.name}`} disabled={busy} onClick={() => void openElectron(tool.id)}>打开 ↗</button>
-                  <button type="button" className={btnSecondary} aria-label={`管理 ${tool.name}`} onClick={() => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); }}>管理</button>
-                  {development && <button type="button" className={btnGhost} onClick={() => edit(tool)}>编辑</button>}
-                  <button type="button" className={btnGhost} data-hint="导出插件项目源码 ZIP" disabled={busy} onClick={() => void exportTool(tool)}>导出</button>
-                  <button type="button" className={btnGhost} onClick={() => setRemoving(tool.id)}>卸载</button>
+                  <button type="button" className={btnGhost} aria-label={`更多操作：${tool.name}`} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === tool.id} onClick={(event) => openCardMenu(event, tool)}>⋯</button>
                 </div>
               )}
             </li>
@@ -206,6 +226,15 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
         </ul>
         {tools.length > 0 && !tools.some(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(search.trim().toLowerCase())) && <p className="py-8 text-center text-ui-sm text-ink-subtle">没有匹配的工具</p>}
       </div>
+      {cardMenu.menu && (
+        <ContextMenu
+          entries={cardMenu.menu.entries}
+          placement={cardMenu.menu.placement}
+          label={cardMenu.menu.label}
+          closing={cardMenu.menu.closing}
+          onDismiss={cardMenu.dismiss}
+        />
+      )}
     </section>
   );
 }
