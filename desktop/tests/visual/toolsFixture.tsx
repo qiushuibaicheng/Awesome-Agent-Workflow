@@ -23,6 +23,8 @@ const state = createStore<readonly PersonalTool[]>(() => entries);
 const service: ToolsService = {
   state,
   install: (tool) => ({ version: tool.version, updated: false, versionChanged: false }),
+  rollback: () => Promise.resolve(undefined),
+  setSource: () => {},
   open: () => {}, remove: () => {},
   saveSettings: (id, values) => state.setState(state.getState().map((entry) => entry.package.id === id ? { ...entry, settings: resolveToolSettings(entry.package, values) } : entry), true),
 };

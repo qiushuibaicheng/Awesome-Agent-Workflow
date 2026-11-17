@@ -119,6 +119,9 @@ export function createTauriHost(invoke: NativeInvoke = defaultInvoke): HostRunti
         projectDirs: [...input.projectDirs],
       });
     },
+    async moveToolPath(from, to) {
+      await invoke<null>("tool_move_path", { from, to });
+    },
     async ssoOpenLogin(loginUrl) {
       try {
         await invoke("sso_open_login", { loginUrl });
@@ -379,6 +382,26 @@ export function createDemoHost(): DemoHost {
       const removedData = nodeAt(dataSegments)?.type === "file";
       if (removedData) removeAt(dataSegments);
       return Promise.resolve({ removedDirs, skippedDirs, removedData });
+    },
+    moveToolPath(from, to) {
+      const sourceSegments = normalizeKey(from);
+      const targetSegments = normalizeKey(to);
+      const node = nodeAt(sourceSegments);
+      if (node === undefined) {
+        return Promise.reject(new Error(`源路径不存在：${from}`));
+      }
+      if (node.type === "dir" && nodeAt([...sourceSegments, "manifest.json"]) === undefined) {
+        return Promise.reject(new Error(`只允许移动工具项目目录（缺少 manifest.json）：${from}`));
+      }
+      if (nodeAt(targetSegments) !== undefined) {
+        return Promise.reject(new Error(`目标已经存在：${to}`));
+      }
+      ensureDir(targetSegments.slice(0, -1)).children.set(
+        targetSegments[targetSegments.length - 1] ?? "",
+        node,
+      );
+      removeAt(sourceSegments);
+      return Promise.resolve();
     },
     ssoOpenLogin() {
       return Promise.resolve();

@@ -74,5 +74,13 @@ export interface PersonalTool {
   readonly updatedAt?: number;
   /** 被这次覆盖掉的版本号，安装后提示「v1.0 → v2.0」用。 */
   readonly previousVersion?: string;
+  /**
+   * 这一版是从哪个项目目录装进来的。
+   *
+   * 记它是为了回答一个此前没人能回答的问题："我改了项目里的 index.html，
+   * 工具中心里那个还是新的吗？"——有了目录就能读回来比对，不一致时提示
+   * 用户重新安装，而不是让他打开一个旧版本还以为是刚改的。
+   */
+  readonly dir?: string;
   readonly settings?: ToolSettings;
 }

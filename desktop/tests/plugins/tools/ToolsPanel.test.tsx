@@ -29,7 +29,7 @@ it("defers a selected source update until dirty settings are explicitly discarde
 
 it("keeps unsaved settings until source editing is explicitly confirmed", () => {
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool }]);
-  const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
   const host = { isNative: () => true } as unknown as HostService;
   render(<ToolsPanel service={service} host={host} workshop={fakeWorkshop()} />);
   openCardMenu();
@@ -52,7 +52,7 @@ function openCardMenu(name = "JSON 格式化") {
 
 it("opens Electron directly, routes Manage separately, saves settings and exports source ZIP", async () => {
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool, settings: { indent: 2 } }]);
-  const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn((_id: string, values: ToolSettings) => state.setState([{ package: sampleTool, settings: values }], true)) } satisfies ToolsService;
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn((_id: string, values: ToolSettings) => state.setState([{ package: sampleTool, settings: values }], true)) } satisfies ToolsService;
   const open = vi.fn().mockResolvedValue(undefined);
   const write = vi.fn().mockResolvedValue(undefined);
   const host = { isNative: () => true, openToolsElectron: open, writeToolArchive: write,

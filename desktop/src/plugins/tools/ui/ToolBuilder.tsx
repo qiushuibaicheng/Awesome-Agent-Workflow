@@ -1,5 +1,7 @@
 import { useStore } from "zustand";
 import { btnGhost, btnPrimary, btnSecondary, DangerButton } from "../../../shared/ui/controls.tsx";
+import { CopyButton } from "../../../shared/ui/CopyButton.tsx";
+import { describeViolations } from "../runtime/rules.ts";
 import type { ToolViolation } from "../types.ts";
 import type { WorkshopService } from "./workshop.ts";
 
@@ -83,11 +85,23 @@ export function ActiveProjectCard({ workshop, onPreview }: {
       <ViolationList problems={check.blocking} />
       <ViolationList problems={check.warnings} />
     </>}
+    {/* 装进去的是快照：改了项目却没重装，打开工具看到的还是旧版。 */}
+    {snapshot.drift && (
+      <p className="build-hint">项目里的内容跟已安装的那一版不一样了——点「确认安装」把这一版装进去，否则打开工具看到的还是旧的。</p>
+    )}
     <div className="build-active-actions">
       <button type="button" className={btnSecondary} onClick={() => void workshop.verify()} disabled={snapshot.busy}>重新校验</button>
       <button type="button" className={btnSecondary} onClick={onPreview} disabled={!check?.tool}>预览</button>
+      {/* 文案一直说"把问题复制给 AI"，却只有一段不能一键复制的列表——这里补上按钮。 */}
+      {!!check && (check.blocking.length > 0 || check.warnings.length > 0) && (
+        <CopyButton
+          tone="soft"
+          label="复制问题给 AI"
+          getText={() => describeViolations([...check.blocking, ...check.warnings])}
+        />
+      )}
       {snapshot.installed
-        ? <span className="build-hint">已安装到工具中心</span>
+        ? <span className="build-hint">{snapshot.drift ? "已安装（旧版）" : "已安装到工具中心"}</span>
         : <DangerButton onClick={() => void workshop.install()} disabled={!check?.ready}>确认安装</DangerButton>}
     </div>
   </section>;

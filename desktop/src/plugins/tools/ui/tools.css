@@ -144,6 +144,9 @@
 .aaw-tools .preview-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .aaw-tools .preview-actions button { min-height: 30px; padding: 5px 10px; border-radius: 7px; font-size: 12px; }
 .aaw-tools .preview-actions .preview-install { border: 1px solid var(--color-info); background: var(--color-info); color: white; }
+/* 右栏标签里空间更窄：头部收一点，标题让位给按钮。 */
+.aaw-tools .preview-head.is-embedded { padding: 8px 10px; gap: 8px; }
+.aaw-tools .preview-head.is-embedded .preview-title h2 { font-size: 13px; }
 .aaw-tools .preview-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: #171c24; }
 .aaw-tools .preview-logs { flex: 0 0 auto; max-height: 42%; display: flex; flex-direction: column; border-top: 1px solid var(--color-line); background: var(--color-surface); }
 .aaw-tools .preview-logs-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; font-size: 11px; color: var(--color-ink-subtle); }
@@ -201,9 +204,18 @@
 .aaw-tools .build-project-actions button { min-height: 28px; padding: 4px 10px; font-size: 12px; border-radius: 7px; }
 .aaw-tools .build-permission { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-warning-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-warning-ink, var(--color-info)); font-style: normal; }
 .aaw-tools .build-missing { padding: 1px 6px; border-radius: 999px; border: 1px solid var(--color-line); font-style: normal; }
+/* "项目改了但没重装"是长句子，做成胶囊会撑坏一行；给普通文字 + 警示色。 */
+.aaw-tools .build-drift { font-style: normal; color: var(--color-warning-ink, var(--color-info)); }
 .aaw-tools .build-empty { display: flex; gap: 10px; align-items: flex-start; padding: 16px; border: 1px dashed var(--color-line-strong); border-radius: 12px; color: var(--color-ink-subtle); }
 .aaw-tools .build-empty strong { display: block; font-size: 13px; color: var(--color-ink); }
 .aaw-tools .build-empty p { margin-top: 3px; font-size: 12px; }
+
+/* 改名：两个字段排成一行，窄面板下自动折行（不写死宽度，见 R7）。 */
+.aaw-tools .build-rename { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; width: 100%; }
+.aaw-tools .build-rename label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 140px; min-width: 0; font-size: 11px; color: var(--color-ink-subtle); }
+.aaw-tools .build-rename input { width: 100%; min-height: 28px; padding: 4px 8px; border: 1px solid var(--color-line); border-radius: 7px; background: var(--color-base); color: var(--color-ink); font-size: 12px; }
+.aaw-tools .build-rename input:focus-visible { outline: 2px solid var(--color-info); outline-offset: 1px; }
+.aaw-tools .build-rename .build-hint { flex: 1 1 100%; }
 
 /* ── 规范安装 ─────────────────────────────────────────────────────────── */
 .aaw-tools .build-guide { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-surface); }

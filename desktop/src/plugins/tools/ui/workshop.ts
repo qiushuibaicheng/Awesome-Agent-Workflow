@@ -21,12 +21,13 @@ import type { ProjectService } from "../../project/service.ts";
 import { briefMessage, repairMessage, toolGuideSkill } from "../runtime/guide.ts";
 import {
   checkToolProject, createToolProject, listToolProjectSummaries,
-  toolProjectIdFromBrief,
+  renameToolProject, toolProjectIdFromBrief,
   type ToolProjectCheck,
-  type ToolProjectIO,
   type ToolProjectSummary,
 } from "../runtime/project.ts";
+import { hostToolIO } from "../runtime/io.ts";
 import type { InstallOutcome, ToolsService } from "../service.ts";
+import type { ToolPackage } from "../types.ts";
 
 /** 一轮最多几次自动回灌。超过就把问题摊给用户——AI 卡住时人得能接管。 */
 const maxRepairRounds = 3;
@@ -51,6 +52,13 @@ export interface WorkshopSnapshot {
   readonly busy: boolean;
   /** 当前项目是否已通过"确认安装"进了工具中心。 */
   readonly installed: boolean;
+  /**
+   * 已安装，但项目里的内容跟装进去的那一份不一样了。
+   *
+   * 这是"AI 改完没点安装"的直接后果：用户以为打开的是新版，其实还是旧的。
+   * 与其让他自己猜，不如在卡片上写明「项目已改动，还没装进去」。
+   */
+  readonly drift: boolean;
   readonly repairs: number;
   /** 前台会话里 AI 是否正在写；面板据此显示"正在写…"。 */
   readonly running: boolean;
@@ -69,6 +77,10 @@ export interface WorkshopService {
   create(): Promise<void>;
   verify(dir?: string): Promise<ToolProjectCheck | null>;
   install(): Promise<boolean>;
+  /** 退回上一版（覆盖安装前落盘的副本）。 */
+  rollback(id: string): Promise<WorkshopNote>;
+  /** 改显示名 / 改目录名（= 改 id）。 */
+  rename(dir: string, input: { readonly name?: string; readonly id?: string }): Promise<WorkshopNote>;
   /** 打开一个已有工具项目（继续开发：新开一条会话）。 */
   resume(dir: string): Promise<void>;
   /** 选中一个已有项目作为"当前项目"（只校验，不切视图）。 */
@@ -82,15 +94,8 @@ export interface WorkshopService {
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function projectIO(host: HostService): ToolProjectIO {
-  return {
-    userDataDir: (namespace, directory) => host.skills.userDataDir(namespace, directory),
-    pathExists: (path) => host.skills.pathExists(path),
-    listDirNames: (path) => host.skills.listDirNames(path),
-    readTextFile: (path) => host.archives.readTextFile(path),
-    writeTextFile: (path, contents) => host.skills.writeTextFile(path, contents),
-  };
-}
+/** 文件端口：`runtime/io.ts` 里的人一个实现，这里保留旧名字给面板用。 */
+export const projectIO = hostToolIO;
 
 /** 安装结果的用户话术：说清"新装/更新"、版本从哪到哪、版本号有没有动。 */
 export function describeInstall(outcome: InstallOutcome, name: string): string {
@@ -118,6 +123,7 @@ export function createWorkshop(deps: {
     note: null,
     busy: false,
     installed: false,
+    drift: false,
     repairs: 0,
     running: false,
     projects: [],
@@ -133,9 +139,23 @@ export function createWorkshop(deps: {
     return !!active && pathKey(active) === pathKey(dir);
   }
 
+  /**
+   * 校准"装进去的那一份"与"目录里的那一份"。
+   *
+   * 只比版本号不够——AI 经常改了内容忘了改版本号；只比 html 又漏掉清单里
+   * 动作/设置的改动。两样都比一次，代价是几毫秒的字符串比较。
+   */
+  function syncWithInstalled(tool: ToolPackage | undefined): { installed: boolean; drift: boolean } {
+    if (!tool) return { installed: false, drift: false };
+    const entry = tools.state.getState().find((item) => item.package.id === tool.id);
+    if (!entry) return { installed: false, drift: false };
+    const same = entry.package.version === tool.version && entry.package.html === tool.html;
+    return { installed: true, drift: !same };
+  }
+
   async function readCheck(dir: string): Promise<ToolProjectCheck> {
     const result = await checkToolProject(io, dir);
-    patch({ check: result });
+    patch({ check: result, ...syncWithInstalled(result.tool) });
     return result;
   }
 
@@ -223,7 +243,7 @@ export function createWorkshop(deps: {
 
   async function select(dir: string | null): Promise<void> {
     if (!dir) {
-      patch({ project: null, check: null, installed: false, repairs: 0 });
+      patch({ project: null, check: null, installed: false, drift: false, repairs: 0 });
       return;
     }
     const summary = store.getState().projects.find((entry) => entry.dir === dir);
@@ -233,7 +253,6 @@ export function createWorkshop(deps: {
         id: summary?.id ?? dir.split(/[\\/]/).pop() ?? "tool",
         name: summary?.name ?? summary?.dirName ?? dir,
       },
-      installed: tools.state.getState().some((entry) => entry.package.id === summary?.id),
       repairs: 0,
     });
     try { await readCheck(dir); }
@@ -260,8 +279,9 @@ export function createWorkshop(deps: {
       return false;
     }
     try {
-      const outcome = tools.install(result.tool, true);
-      patch({ installed: true, note: { text: describeInstall(outcome, result.tool.name) } });
+      // 带上来源目录：以后能回答"这个工具是哪个项目装的"，也能比对两边的差异。
+      const outcome = tools.install(result.tool, true, current.dir);
+      patch({ installed: true, drift: false, note: { text: describeInstall(outcome, result.tool.name) } });
       void refreshProjects();
       return true;
     } catch (error) {
@@ -322,6 +342,49 @@ export function createWorkshop(deps: {
 
     verify,
     install,
+
+    async rollback(id) {
+      try {
+        const outcome = await tools.rollback(id);
+        if (!outcome) return { text: "没有可回退的版本——只有覆盖安装过的工具才会留下上一版。", error: true };
+        // 退回旧版之后，项目目录里（如果有）通常还是新内容，标记成"有改动"。
+        const selected = store.getState().project;
+        patch(selected?.id === id ? { installed: true, drift: true } : { installed: true });
+        void refreshProjects();
+        const name = tools.state.getState().find((entry) => entry.package.id === id)?.package.name ?? id;
+        return {
+          text: `已退回 ${name} v${outcome.version}${outcome.previousVersion ? `（原 v${outcome.previousVersion} 已留下，可以再点一次退回去）` : ""}。`,
+        };
+      } catch (error) {
+        return { text: `回退失败：${errorText(error)}`, error: true };
+      }
+    },
+
+    async rename(dir, input) {
+      const current = store.getState().project;
+      const previousId = current?.dir === dir ? current.id : dir.split(/[\\/]/).pop() ?? "";
+      const installedIds = new Set(tools.state.getState().map((entry) => entry.package.id));
+      const nextId = input.id?.trim();
+      // 已安装的工具改 id 会让设置与 aawStore 数据（都按 id 存）对不上，
+      // 等于换了一个工具；只改显示名没有任何副作用。
+      if (nextId && nextId !== previousId && installedIds.has(previousId))
+        return { text: "这个工具已经装进工具中心了。改目录名会换掉它的身份（设置与数据都按 id 存），先在「已安装」里卸载再改；只改显示名不受影响。", error: true };
+      if (nextId && nextId !== previousId && isForeground(dir))
+        return { text: "这个项目正开着，会话历史挂在当前路径上——改目录名会让它接不上。先在侧栏换到别的项目再改名；只改显示名不受影响。", error: true };
+      try {
+        const result = await renameToolProject(io, { dir, ...input });
+        if (current?.dir === dir)
+          patch({ project: { dir: result.dir, id: result.id, name: result.name } });
+        await refreshProjects();
+        return {
+          text: result.moved
+            ? `已改名：目录 ${result.previousId} → ${result.id}，显示名「${result.name}」。`
+            : `已改名为「${result.name}」。`,
+        };
+      } catch (error) {
+        return { text: errorText(error), error: true };
+      }
+    },
 
     async resume(dir) {
       await select(dir);

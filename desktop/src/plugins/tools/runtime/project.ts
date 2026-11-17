@@ -10,9 +10,9 @@
  * （configuration 的 `user:<id>` 键）保持一致——同一件事不会一半按账号、
  * 一半按机器，换账号时"列表"和"源码"永远对得上。
  */
-import { joinPath, pathName } from "../../../shared/panelPaths.ts";
+import { joinPath, parentPath, pathKey, pathName } from "../../../shared/panelPaths.ts";
 import type { ToolPackage, ToolViolation } from "../types.ts";
-import { validateToolPackage, validateToolPackageText } from "./package.ts";
+import { toolIdPattern, validateToolPackage, validateToolPackageText } from "./package.ts";
 import { runToolRules, splitViolations } from "./rules.ts";
 import { toolGuide } from "./guide.ts";
 
@@ -23,6 +23,14 @@ export interface ToolProjectIO {
   listDirNames(path: string): Promise<readonly string[]>;
   readTextFile(path: string): Promise<string>;
   writeTextFile(path: string, contents: string): Promise<void>;
+  /**
+   * 移动文件或目录（目标必须不存在）。
+   *
+   * 改名要靠它：只"新建目录 + 复制文件"没法删掉旧目录，而删旧目录又只能走
+   * `toolPurge`（会连工具数据一起清）。宿主侧用系统 rename 做同盘原子移动，
+   * 跨盘时退回复制 + 删除。
+   */
+  movePath(from: string, to: string): Promise<void>;
 }
 
 export interface ToolProjectSummary {
@@ -252,6 +260,79 @@ export interface ToolProjectCheck {
   readonly blocking: readonly ToolViolation[];
   readonly warnings: readonly ToolViolation[];
   readonly ready: boolean;
+}
+
+export interface RenameToolProjectInput {
+  readonly dir: string;
+  /** 新的显示名（清单 name）；省略表示不改。 */
+  readonly name?: string;
+  /** 新的目录名与清单 id；省略表示不改。 */
+  readonly id?: string;
+}
+
+export interface RenamedToolProject {
+  readonly dir: string;
+  readonly id: string;
+  readonly name: string;
+  /** 目录是否真的换了位置（改了 id 才会换）。 */
+  readonly moved: boolean;
+  /** 改之前的 id，用来同步安装记录。 */
+  readonly previousId: string;
+}
+
+/**
+ * 改项目名 / 改目录名（= 改 id）。只动清单与目录，不碰 index.html。
+ *
+ * 为什么不复用"复制到新目录 + 删旧目录"：删除只能走 `toolPurge`，那会把
+ * 工具数据一起清掉。改名是"同一个工具换个名字"，数据必须留着，所以走宿主
+ * 的原子移动。
+ *
+ * 顺序是"先移动目录、再写清单"：反过来的话移动失败会留下一个 id 已经变了
+ * 但还在旧目录里的项目，列表里两个名字对不上；现在的顺序最坏情况是"目录
+ * 换了、清单还是旧的"，用户看一眼就能发现并重试。
+ */
+export async function renameToolProject(
+  io: ToolProjectIO,
+  input: RenameToolProjectInput,
+): Promise<RenamedToolProject> {
+  const manifestPath = joinPath(input.dir, toolProjectFileNames.manifest);
+  let manifest: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(await io.readTextFile(manifestPath)) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("manifest.json 不是对象");
+    manifest = parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `这个目录里读不出 manifest.json（${error instanceof Error ? error.message : String(error)}），先修好再改名。`,
+      { cause: error },
+    );
+  }
+  const previousId = typeof manifest.id === "string" && manifest.id ? manifest.id : pathName(input.dir);
+  const name = (input.name ?? (typeof manifest.name === "string" ? manifest.name : previousId)).trim();
+  if (!name) throw new Error("名字不能为空。");
+  if (name.length > 60) throw new Error("名字不超过 60 字。");
+  const nextId = (input.id ?? previousId).trim();
+  if (!toolIdPattern.test(nextId))
+    throw new Error("目录名只能用小写字母、数字、点和短横，以字母或数字开头，最长 64 个字符。");
+
+  let dir = input.dir;
+  if (nextId !== previousId) {
+    const target = joinPath(parentPath(input.dir), nextId);
+    if (pathKey(target) === pathKey(input.dir))
+      throw new Error("目录名没有变化。");
+    if (await io.pathExists(target))
+      throw new Error(`同级已经有 ${nextId} 这个目录了，换个名字，或先处理那个目录。`);
+    await io.movePath(input.dir, target);
+    dir = target;
+  }
+  await io.writeTextFile(
+    joinPath(dir, toolProjectFileNames.manifest),
+    JSON.stringify({ ...manifest, id: nextId, name }, null, 2),
+  );
+  // AGENTS.md 是平台生成的（里面写着 id 与名字），改名后要重新生成。
+  await io.writeTextFile(joinPath(dir, toolProjectFileNames.guide), toolGuide({ id: nextId, name }));
+  return { dir, id: nextId, name, moved: dir !== input.dir, previousId };
 }
 
 /** 校验一个项目目录，拆成"必须修 / 建议"。安装按钮只看 `ready`。 */

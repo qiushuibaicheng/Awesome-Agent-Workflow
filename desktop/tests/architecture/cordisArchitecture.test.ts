@@ -174,7 +174,7 @@ it("locates entry points, shared code and production implementations under their
   }
 });
 
-it("keeps the 15 core plugin names and all 82 dependency relations aligned with their production owners", async () => {
+it("keeps the 15 core plugin names and all 86 dependency relations aligned with their production owners", async () => {
   const diagram = read("docs/architecture/cordis-plugin-dependencies.mmd");
   const documented = read("docs/architecture/cordis-plugin-dependencies.md")
     .match(/```mermaid\r?\n([\s\S]*?)\r?\n```/)?.[1];
@@ -395,8 +395,9 @@ it("keeps the 15 core plugin names and all 82 dependency relations aligned with 
   // protocol.open/release 拉起并收养进标准会话体系，连接与释出同池）
   // − 两条「脚本来源」边（首版 aaw.py 退场：project / workflow 不再从 skills
   // 推导 aaw 脚本路径）。
-  // 个人工具新增两条服务依赖和一条 UI 注册。
-  expect(new Set(edges).size).toBe(85);
+  // 个人工具新增三条服务依赖和一条 UI 注册；第三轮整改再补 tools --> host
+  // （备份/改名要读写磁盘，端口归 host，见 docs 21 §3）。
+  expect(new Set(edges).size).toBe(86);
   expect(edges.sort()).toEqual([...required, ...weak].sort());
 
   const runtime = createTestDesktopRuntime(
@@ -432,6 +433,8 @@ it("keeps the 15 core plugin names and all 82 dependency relations aligned with 
       "file",
       "files",
       "git",
+      // 工具预览是独立标签：能和工具列表、文件、终端并排存在。
+      "tool-preview",
       "tools",
     ]);
     expect(view.settings.map(({ id }) => id).sort()).toEqual([

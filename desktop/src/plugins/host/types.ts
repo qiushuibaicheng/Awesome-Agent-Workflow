@@ -118,6 +118,11 @@ export interface HostRuntime {
    */
   toolPurge(input: ToolPurgeInput): Promise<ToolPurgeReport>;
   /**
+   * 移动文件或目录（目标必须不存在）。工具项目改名用它——同盘原子移动，
+   * 不复制、不删除、不碰工具数据。
+   */
+  moveToolPath(from: string, to: string): Promise<void>;
+  /**
    * 打开（或唤起）SSO 登录窗口：首次调用创建 **隐藏** 窗口（给持久
    * cookie 的静默探测留窗口期），再次调用即唤起显示。语义见 sso_login.rs。
    */
@@ -297,7 +302,7 @@ export type AccountHost = Pick<
 
 export type SkillFiles = Pick<
   HostRuntime,
-  "userDataDir" | "listDirNames" | "pathExists" | "copyDir" | "writeTextFile" | "toolPurge"
+  "userDataDir" | "listDirNames" | "pathExists" | "copyDir" | "writeTextFile" | "toolPurge" | "moveToolPath"
 >;
 
 /**

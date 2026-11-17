@@ -365,6 +365,58 @@ pub fn tool_purge(
     Ok(report)
 }
 
+/// 移动一个文件或目录（改名、换位置都用它）。
+///
+/// 为什么需要专门一条命令：工具项目改名要"同一个目录换个名字"，而其余
+/// 文件命令里只有 `copy_dir`（会先删目标）和 `tool_purge`（会连工具数据
+/// 一起清），都不适合。这里同盘走 `fs::rename`（原子、瞬间完成），跨盘
+/// 退回复制后删源。
+///
+/// 护栏：
+/// - 目标必须不存在（`exists` 就拒绝），不做任何隐式覆盖；
+/// - 源是目录时必须含 `manifest.json`，避免前端传错路径把用户的工作目录
+///   搬走；
+/// - 目标与源不能是同一个路径，也不能把目录搬到它自己的子目录里。
+#[tauri::command]
+pub fn tool_move_path(from: String, to: String) -> Result<(), String> {
+    let src = std::path::Path::new(&from);
+    let dst = std::path::Path::new(&to);
+    if from.trim().is_empty() || to.trim().is_empty() {
+        return Err("源路径或目标路径为空".into());
+    }
+    if !src.exists() {
+        return Err(format!("源路径不存在：{}", src.display()));
+    }
+    if src.is_dir() && !src.join("manifest.json").is_file() {
+        return Err(format!(
+            "只允许移动工具项目目录（缺少 manifest.json）：{}",
+            src.display()
+        ));
+    }
+    if dst.exists() {
+        return Err(format!("目标已经存在：{}", dst.display()));
+    }
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建目标父目录失败 {}: {error}", parent.display()))?;
+    }
+    match std::fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(_) if src.is_dir() => {
+            // 跨盘时 rename 会失败（Windows 上还会报权限错），退回复制 + 删源。
+            copy_dir_recursive(src, dst).map_err(|error| error.to_string())?;
+            std::fs::remove_dir_all(src)
+                .map_err(|error| format!("复制完成但删除原目录失败 {}: {error}", src.display()))
+        }
+        Err(_) => {
+            std::fs::copy(src, dst)
+                .map_err(|error| format!("移动文件失败 {}: {error}", src.display()))?;
+            std::fs::remove_file(src)
+                .map_err(|error| format!("复制完成但删除原文件失败 {}: {error}", src.display()))
+        }
+    }
+}
+
 /// Resolve namespaced user data without knowledge of any agent implementation.
 #[tauri::command]
 pub fn user_data_dir(namespace: String, directory: String) -> Result<String, String> {

@@ -118,6 +118,7 @@ pub fn run() {
             commands::write_text_file,
             commands::user_data_dir,
             commands::tool_purge,
+            commands::tool_move_path,
             // 工作区文件列举（@ 提及数据源；跳过依赖目录，深度/条目封顶）
             commands::list_workspace_files,
             // 关闭守卫：前端裁决后经它真正销毁窗口（跳过 CloseRequested）

@@ -80,6 +80,7 @@ flowchart TB
   account --> host
   account --> configuration
   account --> diagnostics
+  tools --> host
   tools --> account
   tools --> configuration
   updates --> host

@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
 import {
   checkToolProject, createToolProject, listToolProjects, migrateLegacyTools,
-  listToolProjectSummaries, readToolProject, toolFromProject, toolOwnerSegment,
-  toolProjectIdFromBrief, type ToolProjectIO,
+  listToolProjectSummaries, readToolProject, renameToolProject, toolFromProject,
+  toolOwnerSegment, toolProjectIdFromBrief, type ToolProjectIO,
 } from "../../../src/plugins/tools/runtime/project.ts";
 import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
 
@@ -23,6 +23,16 @@ function memoryIO(initial: Record<string, string> = {}) {
       return value === undefined ? Promise.reject(new Error(`ENOENT ${path}`)) : Promise.resolve(value);
     },
     writeTextFile: (path, contents) => { files.set(path, contents); return Promise.resolve(); },
+    movePath: (from, to) => {
+      const moved = [...files.keys()].filter((key) => key === from || key.startsWith(`${from}/`));
+      if (!moved.length) return Promise.reject(new Error(`ENOENT ${from}`));
+      for (const key of moved) {
+        const value = files.get(key)!;
+        files.delete(key);
+        files.set(`${to}${key.slice(from.length)}`, value);
+      }
+      return Promise.resolve();
+    },
   };
   return { io, files };
 }
@@ -157,4 +167,33 @@ it("summarises projects from manifest without loading the whole page", async () 
     id: "demo", name: "演示", version: "1.2.0", hasHtml: true, network: true,
   });
   expect(summaries.find((entry) => entry.dirName === "broken")?.broken).toBeTruthy();
+});
+
+it("renames a project in place, and moves the directory when the id changes", async () => {
+  const { io, files } = memoryIO();
+  const created = await createToolProject(io, { id: "demo", name: "演示", owner: "u1" });
+  await io.writeTextFile(`${created.dir}/index.html`, page);
+
+  // 只改显示名：目录不动，页面不动，只有清单和 AGENTS.md 跟着改名。
+  const renamed = await renameToolProject(io, { dir: created.dir, name: "接口 JSON 转表格" });
+  expect(renamed).toMatchObject({ id: "demo", name: "接口 JSON 转表格", moved: false, previousId: "demo" });
+  expect(files.get(`${created.dir}/index.html`)).toBe(page);
+  expect(files.get(`${created.dir}/AGENTS.md`)).toContain("接口 JSON 转表格");
+
+  // 改 id：目录跟着搬，旧目录必须消失——"复制一份再留个旧目录"会变成两个项目。
+  const moved = await renameToolProject(io, { dir: renamed.dir, id: "json-table" });
+  expect(moved).toMatchObject({ id: "json-table", moved: true });
+  expect(moved.dir).toBe("/data/tools/projects/u1/json-table");
+  expect(files.has("/data/tools/projects/u1/demo/manifest.json")).toBe(false);
+  expect(JSON.parse(files.get(`${moved.dir}/manifest.json`)!)).toMatchObject({ id: "json-table", name: "接口 JSON 转表格" });
+  expect(files.get(`${moved.dir}/index.html`)).toBe(page);
+});
+
+it("refuses a rename that would collide, and explains why", async () => {
+  const { io } = memoryIO();
+  const first = await createToolProject(io, { id: "one", name: "一", owner: "u1" });
+  await createToolProject(io, { id: "two", name: "二", owner: "u1" });
+  await expect(renameToolProject(io, { dir: first.dir, id: "two" })).rejects.toThrow("已经有 two");
+  await expect(renameToolProject(io, { dir: first.dir, id: "Bad Name" })).rejects.toThrow("目录名");
+  await expect(renameToolProject(io, { dir: first.dir, name: "  " })).rejects.toThrow("名字不能为空");
 });

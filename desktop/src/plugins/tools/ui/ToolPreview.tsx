@@ -37,14 +37,21 @@ export interface PreviewLog {
   readonly text: string;
 }
 
-export function ToolPreview({ tool, onBack, onInstall, installLabel }: {
+export function ToolPreview({ tool, onBack, onInstall, installLabel, onReload, revision = 0, embedded = false }: {
   tool: ToolPackage;
-  onBack: () => void;
+  /** 省略时不显示「← 返回」——右栏标签里没有"上一页"可回。 */
+  onBack?: () => void;
   onInstall?: () => void;
   installLabel?: string;
+  /** 从磁盘重新读一遍项目（右栏预览用）；省略时只重载 iframe。 */
+  onReload?: () => void;
+  /** 内容版本号：变了就换 iframe，避免改完还是旧画面。 */
+  revision?: number;
+  /** 嵌在右栏里：头部更紧凑，不加外框背景。 */
+  embedded?: boolean;
 }) {
   const [logs, setLogs] = useState<readonly PreviewLog[]>([]);
-  const [showLogs, setShowLogs] = useState(true);
+  const [showLogs, setShowLogs] = useState(!embedded);
   const [nonce, setNonce] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const errors = logs.filter((entry) => entry.level === "error").length;
@@ -68,15 +75,19 @@ export function ToolPreview({ tool, onBack, onInstall, installLabel }: {
   }, [logs]);
 
   return (
-    <section aria-label={`${tool.name} 预览`} className="aaw-tools flex h-full min-h-0 flex-col bg-base">
-      <header className="preview-head">
-        <button type="button" className={btnGhost} onClick={onBack}>← 返回</button>
+    <section aria-label={`${tool.name} 预览`} className={`aaw-tools flex h-full min-h-0 flex-col ${embedded ? "" : "bg-base"}`}>
+      <header className={`preview-head${embedded ? " is-embedded" : ""}`}>
+        {onBack && <button type="button" className={btnGhost} onClick={onBack}>← 返回</button>}
         <div className="preview-title">
           <h2>{tool.name}</h2>
           <span>v{tool.version} · 预览</span>
         </div>
         <div className="preview-actions">
-          <button type="button" className={btnGhost} onClick={() => { setLogs([]); setNonce((value) => value + 1); }}>重新载入</button>
+          <button type="button" className={btnGhost} onClick={() => {
+            setLogs([]);
+            setNonce((value) => value + 1);
+            onReload?.();
+          }}>{onReload ? "重新读取" : "重新载入"}</button>
           <button type="button" className={btnGhost} aria-pressed={showLogs} onClick={() => setShowLogs((value) => !value)}>
             运行日志{errors ? ` · ${errors} 个错误` : logs.length ? ` · ${logs.length}` : ""}
           </button>
@@ -84,7 +95,7 @@ export function ToolPreview({ tool, onBack, onInstall, installLabel }: {
         </div>
       </header>
       <iframe
-        key={`${tool.id}:${nonce}`}
+        key={`${tool.id}:${nonce}:${revision}`}
         data-hint={tool.name}
         aria-label={tool.name}
         sandbox="allow-scripts"

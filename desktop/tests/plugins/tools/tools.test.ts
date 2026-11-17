@@ -62,3 +62,30 @@ it("maintains distinct personal libraries and keeps recent use when updating", a
     await runtime.shutdown();
   }
 });
+
+it("keeps the previous version on disk so a bad upgrade can be undone", async () => {
+  let context: Context | undefined;
+  const runtime = createTestDesktopRuntime(
+    { attachPreloading: () => () => {}, close: () => Promise.resolve() },
+    undefined,
+    (value) => { context = value; },
+  );
+  try {
+    await runtime.ready;
+    if (!context) throw new Error("Missing desktop context");
+    const { account, tools } = context;
+    account.loginAsDev({ name: "Rollback", employeeId: "tools-test-rollback" });
+    tools.install(makeTool("r"));
+    // 第一次安装没有"上一版"，回退必须明确说没有，而不是静默装回同一个东西。
+    expect(await tools.rollback("r")).toBeUndefined();
+    tools.install({ ...makeTool("r"), version: "1.1.0", html: "<p>新版</p>" }, true);
+    const back = await tools.rollback("r");
+    expect(back).toMatchObject({ version: "1.0.0", previousVersion: "1.1.0" });
+    expect(tools.state.getState()[0]?.package.html).toBe("<button>Run</button>");
+    // 退回去之后，被换下来的那一版成了新的"上一版"——点错了还能换回来。
+    const forward = await tools.rollback("r");
+    expect(forward).toMatchObject({ version: "1.1.0", previousVersion: "1.0.0" });
+  } finally {
+    await runtime.shutdown();
+  }
+});

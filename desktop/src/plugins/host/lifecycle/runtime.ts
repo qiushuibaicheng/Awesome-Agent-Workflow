@@ -190,6 +190,7 @@ export class DesktopHost implements HostService {
       copyDir: (from, to) => this.resources.run(() => backend.copyDir(from, to)),
       writeTextFile: (path, text) => this.resources.run(() => backend.writeTextFile(path, text)),
       toolPurge: (input) => this.resources.run(() => backend.toolPurge(input)),
+      moveToolPath: (from, to) => this.resources.run(() => backend.moveToolPath(from, to)),
     };
     this.account = createAccountHost(backend, this.resources);
     this.process = {

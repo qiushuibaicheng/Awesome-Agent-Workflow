@@ -35,11 +35,18 @@ type Tab = "library" | "projects" | "developer";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function ToolsPanel({ service, host, project, workshop }: {
+export function ToolsPanel({ service, host, project, workshop, onPreviewProject }: {
   service: ToolsService;
   host: HostService;
   project?: ProjectService;
   workshop: WorkshopService;
+  /**
+   * 在右栏另开一个预览标签（会话留在中间）。
+   *
+   * 省略时退回"把工具中心整页换成预览"的旧行为——那是给浏览器预览模式
+   * 与没有右栏的场合留的后路。
+   */
+  onPreviewProject?: (dir: string, name?: string) => void;
 }) {
   const tools = useStore(service.state);
   const workshopState = useStore(workshop.state);
@@ -67,12 +74,18 @@ export function ToolsPanel({ service, host, project, workshop }: {
       try {
         const result = await migrateLegacyTools(projectIO(host), tools.map((entry) => entry.package));
         if (result.created.length) {
+          // 迁移出来的目录就是这些工具现在的源码位置：记下来，卡片才能判断
+          // "项目改了没重装"。
+          for (const dir of result.created) {
+            const id = dir.split(/[\\/]/).filter(Boolean).pop();
+            if (id) service.setSource(id, dir);
+          }
           setFeedback({ text: `已把 ${result.created.length} 个旧工具迁成项目目录，可以在「工具项目」里继续开发。` });
           void workshop.refreshProjects();
         }
       } catch { /* 迁移失败不该影响使用，下次打开再试 */ }
     })();
-  }, [host, project, tools, workshop]);
+  }, [host, project, service, tools, workshop]);
 
   function run(action: () => void) {
     setFeedback(undefined);
@@ -149,10 +162,18 @@ export function ToolsPanel({ service, host, project, workshop }: {
   }
 
   async function previewProject(dir: string) {
+    // 先校验一次：能读出来才值得开预览（否则预览里只会是一句报错）。
     await workshop.select(dir);
-    const check = workshop.state.getState().check;
-    if (check?.tool) setView({ kind: "preview", tool: check.tool });
-    else setFeedback({ text: "这个项目还读不出可预览的工具，先看下面的校验问题。", error: true });
+    const tool = workshop.state.getState().check?.tool;
+    if (!tool) {
+      setFeedback({ text: "这个项目还读不出可预览的工具，先看下面的校验问题。", error: true });
+      return;
+    }
+    if (onPreviewProject) {
+      onPreviewProject(dir, workshop.state.getState().project?.name);
+      return;
+    }
+    setView({ kind: "preview", tool });
   }
 
   async function installProject(dir: string) {
@@ -171,14 +192,24 @@ export function ToolsPanel({ service, host, project, workshop }: {
    */
   function openCardMenu(event: ReactMouseEvent<HTMLButtonElement>, tool: ToolPackage) {
     const rect = event.currentTarget.getBoundingClientRect();
+    const entry = tools.find((item) => item.package.id === tool.id);
     const entries: ContextMenuEntry[] = [
       { id: "manage", label: "管理", onSelect: () => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); } },
       { id: "edit", label: "编辑工具包", onSelect: () => edit(tool) },
       { id: "export", label: "导出源码", disabled: busy, onSelect: () => void exportTool(tool) },
-      { type: "separator" },
+      // 只有"装过至少两次"的工具才有上一版：装坏了这一步能救回来。
+      ...(entry?.previousVersion
+        ? [{ id: "rollback", label: `退回上一版 v${entry.previousVersion}`, onSelect: () => void rollbackTool(tool.id) }]
+        : []),
+      { type: "separator" as const },
       { id: "remove", label: "卸载", danger: true, onSelect: () => setRemoving({ id: tool.id, files: false }) },
     ];
     cardMenu.open(tool.id, `${tool.name} 操作`, entries, { x: rect.right, y: rect.bottom + 4, side: "bottom", align: "end" });
+  }
+
+  async function rollbackTool(id: string) {
+    const note = await workshop.rollback(id);
+    setFeedback({ text: note.text, ...(note.error ? { error: true as const } : {}) });
   }
 
   async function confirmRemove(id: string, files: boolean) {
@@ -192,6 +223,7 @@ export function ToolsPanel({ service, host, project, workshop }: {
   if (managed) return <ToolManagement key={`${managed.package.id}:${JSON.stringify(managed.settings)}:${JSON.stringify(managed.package.settingsSchema)}`} entry={managed} busy={busy} feedback={feedback}
     onBack={() => { setView({ kind: "library" }); setFeedback(undefined); }}
     onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)} onEdit={() => edit(managed.package)}
+    onRollback={() => void rollbackTool(managed.package.id)}
     onSave={(values) => { try { service.saveSettings(managed.package.id, values); setFeedback({ text: "设置已保存，重新打开插件后生效。" }); return true; } catch (error) { setFeedback({ text: errorText(error), error: true }); return false; } }}
     onRemove={() => run(() => { service.remove(managed.package.id); setView({ kind: "library" }); })}
     onUpdate={(file) => { void (async () => { try {
@@ -236,11 +268,18 @@ export function ToolsPanel({ service, host, project, workshop }: {
         {tab === "projects" && <>
           <NewToolForm workshop={workshop} available={host.isNative()} />
           <ActiveProjectCard workshop={workshop} onPreview={() => {
-            const tool = workshop.state.getState().check?.tool;
-            if (tool) setView({ kind: "preview", tool });
+            const state = workshop.state.getState();
+            const tool = state.check?.tool;
+            if (!tool) return;
+            if (onPreviewProject && state.project) {
+              onPreviewProject(state.project.dir, state.project.name);
+              return;
+            }
+            setView({ kind: "preview", tool });
           }} />
           <ToolProjectList
             workshop={workshop}
+            installed={tools}
             onPreview={(dir) => void previewProject(dir)}
             onInstall={(dir) => void installProject(dir)}
           />
