@@ -243,3 +243,11 @@ ToolManagement 的返回、编辑工具包、已选择文件的更新源码共�
 共享 safeSourcePath 补齐对 `< > " | ? *` 的拒绝；JSON sourceFiles 和 ZIP 导入同时适用，避免导出 Windows 无法正常解压的文件名。中文、空格、括号和加号等合法名称继续支持。回归覆盖两条导入路径及合法中文文件名往返。
 
 此项收紧已有校验：此前导入且包含上述非法文件名的包，重新解析时会被判为无效；没有自动改名或迁移、删除用户数据。若遇到这类旧包，应保留备份，在源码中修正文件名及引用后重新导入。Electron 使用构建后的 package-contract.mjs；本轮未覆盖正在运行的产物或重启主窗，下次启动完整开发流程时会重建契约。
+
+## 2026-11-17 11:18 巡检修复：新增运行时模块遗漏打包
+
+在 1e4bed3 / e1f9f8d / 830920b 后检查发现 launcher-registry.mjs 已依赖 tone.mjs，而旧构建白名单不复制它。scripts/build-tools-runtime.mjs 现在自动复制 tools-runtime 顶层的 mjs/cjs/js/html/css 文件与 package.json，仍单独生成 package-contract.mjs、复制图标和 Windows 包装器；不复制 dist 子目录。
+
+构建支持可选环境变量 AAW_TOOLS_BUILD_DIR 指定独立产物目录（默认仍是 tools-runtime/dist），供验证全新构建且避免覆盖正在使用的产物。此次在临时目录实测旧规则构建成功但 import registry 报 ERR_MODULE_NOT_FOUND，修复后新 registry 加载和实际 Electron --aaw-cli help 均通过。检查新功能时不能把旧 dist 测试通过视为新源码验收。
+
+近期其他本地提交新增入口：tools-runtime/tone.mjs 为启动器颜色/图标规则；src/plugins/tools/ui/mark.ts 为工具中心镜像规则；ui/aiPrompt.ts 提供 AI 提示词与输出提取。它们来自本轮之前的本地提交，本轮保留其实现，未修改 UI。

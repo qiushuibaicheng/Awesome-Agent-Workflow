@@ -1,12 +1,12 @@
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import electron from "electron";
 
 const desktop = fileURLToPath(new URL("../", import.meta.url));
 const source = join(desktop, "tools-runtime");
-const staged = join(source, "dist");
+const staged = process.env.AAW_TOOLS_BUILD_DIR ? resolve(process.env.AAW_TOOLS_BUILD_DIR) : join(source, "dist");
 const version = JSON.parse(readFileSync(join(desktop, "node_modules", "electron", "package.json"), "utf8")).version;
 const marker = join(staged, `electron-${version}`);
 mkdirSync(staged, { recursive: true });
@@ -21,8 +21,12 @@ const resources = process.platform === "darwin"
   : join(staged, "resources");
 const appDir = join(resources, "app");
 mkdirSync(appDir, { recursive: true });
-for (const name of ["package.json", "main.mjs", "runtime.mjs", "catalog.mjs", "launcher-registry.mjs", "desktop-bridge.mjs", "cli.mjs", "preload.cjs", "launcher.html", "launcher.css", "launcher.js"])
-  cpSync(join(source, name), join(appDir, name));
+// Include new sibling modules automatically; a manual list can produce a
+// successful build whose entry point fails with ERR_MODULE_NOT_FOUND.
+for (const entry of readdirSync(source, { withFileTypes: true })) {
+  if (entry.isFile() && (entry.name === "package.json" || /\.(?:mjs|cjs|js|html|css)$/.test(entry.name)))
+    cpSync(join(source, entry.name), join(appDir, entry.name));
+}
 cpSync(join(desktop, "src-tauri", "icons", "32x32.png"), join(appDir, "icon.png"));
 await build({
   entryPoints: [join(desktop, "src", "plugins", "tools", "runtime", "package.ts")],
