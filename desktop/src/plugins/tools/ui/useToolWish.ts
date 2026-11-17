@@ -47,10 +47,12 @@ export interface ToolWishState {
  * 搬运由平台做。
  */
 export function useToolWish({
-  project, host, onAccept, onInstalled,
+  project, host, owner, onAccept, onInstalled,
 }: {
   project?: ProjectService;
   host: HostService;
+  /** 当前账号 id；默认目录按它分一层，和安装记录保持同一维度。 */
+  owner?: string;
   /** 真正写入工具注册表的动作（由调用方注入，钩子不直接依赖 service）。 */
   onAccept?: (tool: ToolPackage) => void;
   onInstalled?: () => void;
@@ -130,15 +132,18 @@ export function useToolWish({
     rounds.current = 0;
     try {
       const name = wish.trim().slice(0, 24);
+      const wanted = toolProjectIdFromWish(wish.trim());
       const created = await createToolProject(io.current, {
-        id: toolProjectIdFromWish(wish.trim()), name, parent: parent ?? undefined,
+        id: wanted, name, parent: parent ?? undefined, owner,
       });
+      // 同名目录已存在时会自动退到 -2，得让用户知道"不是覆盖，是新建了一份"。
+      const renamed = created.id === wanted ? "" : `已有同名项目，这次建成了 ${created.id}。`;
       setProjectDir(created.dir);
       project.projects.registerProject(created.dir);
       project.projects.selectWorkspace(created.dir);
       const started = await project.sessions.startNewSession(created.dir);
       if (!started.ok) {
-        setNote({ text: `项目已建好，但会话没连上（${started.reason}）。稍后可在会话面板重试。`, error: true });
+        setNote({ text: `${renamed}项目已建好，但会话没连上（${started.reason}）。稍后可在会话面板重试。`, error: true });
         return;
       }
       const target = {
@@ -148,16 +153,16 @@ export function useToolWish({
       };
       if (target.agentKey) {
         project.conversation.send(target, wishMessage(wish.trim(), created));
-        setNote({ text: "会话已开始，AI 写完后我会自动校验。" });
+        setNote({ text: `${renamed}会话已开始，AI 写完后我会自动校验。` });
       } else {
-        setNote({ text: "会话已建好，但还没连上 Agent。连上后把这句话发给它即可（项目里的 AGENTS.md 就是规范）。" });
+        setNote({ text: `${renamed}会话已建好，但还没连上 Agent。连上后把这句话发给它即可（项目里的 AGENTS.md 就是规范）。` });
       }
     } catch (error) {
       setNote({ text: errorText(error), error: true });
     } finally {
       setBusy(false);
     }
-  }, [busy, parent, project, wish]);
+  }, [busy, owner, parent, project, wish]);
 
   const install = useCallback(async () => {
     if (!projectDir) return false;

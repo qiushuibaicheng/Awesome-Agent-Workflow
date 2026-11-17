@@ -9,6 +9,21 @@ const keyLimit = 256 * 1024;
 const toolIdPattern = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 
 /**
+ * 账号标识转成目录段：只留安全字符，其余换成下划线。
+ *
+ * 规则和 `src/plugins/tools/runtime/project.ts` 的 `toolOwnerSegment` 完全一致
+ * （那边是 ts、这里是纯 mjs，不能互相 import）。改一边就要改另一边，否则同一个
+ * 账号在"工具源码目录"和"工具数据目录"里会叫两个名字。
+ *
+ * 不用 `\w` 是为了排除 `:`（Windows 文件名非法）和路径穿越用的 `.`。
+ */
+function ownerSegment(userId) {
+  if (typeof userId !== "string") return "anonymous";
+  const cleaned = userId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^[._]+|\.+$/g, "");
+  return cleaned || "anonymous";
+}
+
+/**
  * 工具持久化：`window.aawStore` 的落地实现。
  *
  * 落点是 `<AAW 数据目录>/tools/storage/<用户>/<工具 id>.json`，一个工具一个文件、
@@ -22,7 +37,7 @@ export function createToolStorage(root) {
     try {
       const settings = readRecord(join(storageRoot(), "configuration", "preferences.json"));
       const auth = JSON.parse(settings["aaw-desktop.auth.v1"] || "null");
-      return typeof auth?.user?.id === "string" && auth.user.id ? auth.user.id.replace(/[^\w.:-]/g, "_") : "anonymous";
+      return ownerSegment(auth?.user?.id);
     } catch {
       return "anonymous";
     }

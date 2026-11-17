@@ -5,6 +5,10 @@
  * 的 `userKey`），换账号就"消失"、不能用 git、不能用编辑器打开、AI 也看不到。
  * 现在目录才是源：`manifest.json` + `index.html` + `AGENTS.md`，安装只是把
  * 目录内容"编"进运行时注册表。
+ *
+ * 隔离口径：目录按账号分一层（`projects/<账号>/<工具 id>/`），和安装记录
+ * （configuration 的 `user:<id>` 键）保持一致——同一件事不会一半按账号、
+ * 一半按机器，换账号时"列表"和"源码"永远对得上。
  */
 import { joinPath } from "../../../shared/panelPaths.ts";
 import type { ToolPackage, ToolViolation } from "../types.ts";
@@ -34,16 +38,56 @@ export function toolProjectIdFromWish(wish: string): string {
   return ascii || `tool-${Date.now().toString(36)}`;
 }
 
-/** 默认落点：`<AAW 数据目录>/tools/projects`。用户选目录时以他选的为准。 */
-export async function defaultToolProjectsDir(io: ToolProjectIO): Promise<string> {
-  return io.userDataDir("tools", "projects");
+/**
+ * 目录名里用的账号标识：只留安全字符，其余换成下划线。
+ *
+ * 为什么要规整：user id 来自 SSO，可能带 `@ / :` 这类在 Windows 路径里非法或
+ * 带特殊含义的字符；`..` 这类值还会造成路径穿越。同一套规则在
+ * `tools-runtime/tool-storage.mjs` 里有一份镜像（纯 mjs，不能 import ts），
+ * 改一边要一起改。
+ */
+export function toolOwnerSegment(userId: string | undefined): string {
+  const cleaned = (userId ?? "").replace(/[^A-Za-z0-9._-]/g, "_").replace(/^[._]+|\.+$/g, "");
+  return cleaned || "anonymous";
 }
 
-export async function listToolProjects(io: ToolProjectIO, parent?: string): Promise<readonly string[]> {
-  const root = parent ?? await defaultToolProjectsDir(io);
+/**
+ * 默认落点：`<AAW 数据目录>/tools/projects/<账号>`。
+ *
+ * 按账号分一层，和"装了什么工具"（configuration 里的 `user:<id>` 键）对齐：
+ * 以前源码目录是机器级、安装记录是按账号，结果换账号会出现"工具列表空着、
+ * 目录里还躺着代码"。用户自己选了目录时以他选的为准，不再套账号段。
+ */
+export async function defaultToolProjectsDir(io: ToolProjectIO, owner: string | undefined): Promise<string> {
+  const base = await io.userDataDir("tools", "projects");
+  return joinPath(base, toolOwnerSegment(owner));
+}
+
+export async function listToolProjects(
+  io: ToolProjectIO,
+  options: { readonly parent?: string; readonly owner?: string } = {},
+): Promise<readonly string[]> {
+  const root = options.parent ?? await defaultToolProjectsDir(io, options.owner);
   if (!await io.pathExists(root)) return [];
   const names = await io.listDirNames(root);
   return names.map((name) => joinPath(root, name));
+}
+
+/**
+ * 找一个没人用的目录名：`demo` 被占了就退到 `demo-2`、`demo-3`…
+ *
+ * 以前这里直接覆盖写：同一个 id 再建一次，会把上一次的 manifest.json 和
+ * index.html 清成空（等于吃掉用户已经做好的东西）。宁可多一个目录，也不覆盖。
+ */
+async function freeProjectDir(
+  io: ToolProjectIO, parent: string, id: string,
+): Promise<{ readonly id: string; readonly dir: string }> {
+  for (let index = 1; index <= 99; index += 1) {
+    const candidate = index === 1 ? id : `${id}-${index}`;
+    const dir = joinPath(parent, candidate);
+    if (!await io.pathExists(dir)) return { id: candidate, dir };
+  }
+  throw new Error("同名工具项目已经有 99 个了，换个名字或者清理一下 projects 目录。");
 }
 
 export interface CreatedToolProject {
@@ -60,21 +104,30 @@ export interface CreatedToolProject {
  */
 export async function createToolProject(
   io: ToolProjectIO,
-  input: { readonly id: string; readonly name: string; readonly dir?: string; readonly parent?: string },
+  input: {
+    readonly id: string;
+    readonly name: string;
+    readonly dir?: string;
+    readonly parent?: string;
+    readonly owner?: string;
+  },
 ): Promise<CreatedToolProject> {
-  const parent = input.parent ?? await defaultToolProjectsDir(io);
-  const dir = input.dir ?? joinPath(parent, input.id);
+  const parent = input.parent ?? await defaultToolProjectsDir(io, input.owner);
+  // 显式给了 dir 就用它（导入/测试）；否则在同名目录已被占用时自动退到 -2。
+  const target = input.dir
+    ? { id: input.id, dir: input.dir }
+    : await freeProjectDir(io, parent, input.id);
   const manifest = {
     schemaVersion: 1,
-    id: input.id,
+    id: target.id,
     name: input.name,
     version: "0.1.0",
     html: "",
   };
-  await io.writeTextFile(joinPath(dir, toolProjectFileNames.guide), toolGuide({ id: input.id, name: input.name }));
-  await io.writeTextFile(joinPath(dir, toolProjectFileNames.html), "");
-  await io.writeTextFile(joinPath(dir, toolProjectFileNames.manifest), JSON.stringify(manifest, null, 2));
-  return { dir, id: input.id, name: input.name };
+  await io.writeTextFile(joinPath(target.dir, toolProjectFileNames.guide), toolGuide({ id: target.id, name: input.name }));
+  await io.writeTextFile(joinPath(target.dir, toolProjectFileNames.html), "");
+  await io.writeTextFile(joinPath(target.dir, toolProjectFileNames.manifest), JSON.stringify(manifest, null, 2));
+  return { dir: target.dir, id: target.id, name: input.name };
 }
 
 export type ToolProjectRead =
@@ -157,9 +210,9 @@ export interface LegacyMigration {
 export async function migrateLegacyTools(
   io: ToolProjectIO,
   tools: readonly ToolPackage[],
-  parent?: string,
+  options: { readonly parent?: string; readonly owner?: string } = {},
 ): Promise<LegacyMigration> {
-  const root = parent ?? await defaultToolProjectsDir(io);
+  const root = options.parent ?? await defaultToolProjectsDir(io, options.owner);
   const created: string[] = [];
   const skipped: string[] = [];
   for (const tool of tools) {

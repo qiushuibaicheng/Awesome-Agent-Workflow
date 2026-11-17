@@ -25,7 +25,13 @@ import "./tools.css";
 type View = { kind: "library" } | { kind: "manage"; id: string } | { kind: "preview"; tool: ToolPackage };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function ToolsPanel({ service, host, project }: { service: ToolsService; host: HostService; project?: ProjectService }) {
+export function ToolsPanel({ service, host, project, owner }: {
+  service: ToolsService;
+  host: HostService;
+  project?: ProjectService;
+  /** 当前账号 id：工具项目默认目录按它分一层，和安装记录同一维度。 */
+  owner?: string;
+}) {
   const tools = useStore(service.state);
   const [view, setView] = useState<View>({ kind: "library" });
   const [development, setDevelopment] = useState(false);
@@ -39,24 +45,26 @@ export function ToolsPanel({ service, host, project }: { service: ToolsService; 
   const active = view.kind === "preview" ? view.tool : undefined;
   const managed = view.kind === "manage" ? tools.find(({ package: tool }) => tool.id === view.id) : undefined;
   const wish = useToolWish({
-    project, host,
+    project, host, owner,
     onAccept: (tool) => service.install(tool, true),
     onInstalled: () => setFeedback({ text: "已安装到工具中心。" }),
   });
 
   // 旧版本的工具体存在 configuration 里；首次打开时迁成项目目录（只写不删）。
-  const migrated = useRef(false);
+  // 按账号记一次：换账号后新账号的旧工具也要能迁，但同账号不要反复扫。
+  const migratedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!project || !host.isNative() || migrated.current || tools.length === 0) return;
-    migrated.current = true;
+    const current = owner ?? "";
+    if (!project || !host.isNative() || migratedFor.current === current || tools.length === 0) return;
+    migratedFor.current = current;
     void (async () => {
       try {
-        const result = await migrateLegacyTools(projectIO(host), tools.map((entry) => entry.package));
+        const result = await migrateLegacyTools(projectIO(host), tools.map((entry) => entry.package), { owner });
         if (result.created.length)
           setFeedback({ text: `已把 ${result.created.length} 个旧工具迁成项目目录，可以在会话里继续开发。` });
       } catch { /* 迁移失败不该影响使用，下次打开再试 */ }
     })();
-  }, [host, project, tools]);
+  }, [host, owner, project, tools]);
 
   function run(action: () => void) {
     setFeedback(undefined);
