@@ -9,8 +9,11 @@ import { fakeWorkshop } from "../plugins/tools/fakeWorkshop.ts";
 import type { HostService } from "../../src/plugins/host/service.ts";
 import "../../src/shared/styles/index.css";
 
-if (new URLSearchParams(location.search).has("warm")) document.documentElement.classList.add("theme-warm");
-const entries: PersonalTool[] = [
+const params = new URLSearchParams(location.search);
+if (params.has("warm")) document.documentElement.classList.add("theme-warm");
+// `?empty` 摆出"一个工具都没有"的首次使用现场：空状态不是一行灰字就够，
+// 得在真实渲染里看三步引导挤不挤、主按钮够不够醒目。
+const entries: PersonalTool[] = params.has("empty") ? [] : [
   { package: { ...sampleTool, settingsSchema: [
     ...sampleTool.settingsSchema!,
     { id: "label", label: "工作区名称", type: "text", default: "我的工作区" },
@@ -39,7 +42,6 @@ const host = {
 } as unknown as HostService;
 // `?stalled` 摆出"AI 修不动了"的交接态：360px 下两个按钮加一段说明会不会挤，
 // 只能看真实渲染。
-const params = new URLSearchParams(location.search);
 const workshop = fakeWorkshop(params.has("stalled") ? {
   project: { dir: "E:/AAW/tools/projects/u1/json-table", id: "json-table", name: "接口 JSON 转表格" },
   stalled: true,

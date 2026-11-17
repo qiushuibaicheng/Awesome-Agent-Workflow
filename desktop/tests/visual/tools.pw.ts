@@ -83,6 +83,20 @@ for (const width of [360, 740]) {
   });
 }
 
+// 第一次打开、一个工具都没有时，这一屏是唯一一次讲清"工具能干嘛"的机会。
+// 顺手留一张真实渲染截图，窄栏与宽栏都不能出现横向滚动。
+for (const width of [360, 1100]) {
+  test(`empty library guides the first tool at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto("/tests/visual/toolsFixture.html?empty");
+    await expect(page.getByText("从一句话开始，做一个自己的工具")).toBeVisible();
+    await expect(page.getByRole("button", { name: /开始做工具/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "导入 ZIP", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `node_modules/.cache/tools-empty-${width}.png` });
+  });
+}
+
 for (const width of [360, 740]) {
   test(`stalled project hands the work back to the user at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 720 });
