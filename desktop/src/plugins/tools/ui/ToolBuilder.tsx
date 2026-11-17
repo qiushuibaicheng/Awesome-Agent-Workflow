@@ -28,7 +28,7 @@ export function NewToolForm({ workshop, available }: {
   available: boolean;
 }) {
   const state = workshop.state;
-  const { brief, parent, busy, note } = useStore(state);
+  const { brief, parent, busy, note, project } = useStore(state);
   const target = parent ?? "默认位置（AAW 数据目录 / tools / projects）";
   return <section aria-label="新建工具" className="build-new">
     <form onSubmit={(event) => { event.preventDefault(); void workshop.create(); }}>
@@ -52,7 +52,8 @@ export function NewToolForm({ workshop, available }: {
         </button>
       </div>
       {!available && <p className="build-hint">需要桌面版并登录后才能建项目。</p>}
-      {note && <p className={`build-hint ${note.error ? "is-error" : ""}`} aria-live="polite">{note.text}</p>}
+      {/* 有当前项目时结论在项目卡片上：说"AI 没修好"的话不该长在新建表单下面。 */}
+      {note && !project && <p className={`build-hint ${note.error ? "is-error" : ""}`} aria-live="polite">{note.text}</p>}
     </form>
   </section>;
 }
@@ -75,12 +76,32 @@ export function ActiveProjectCard({ workshop, onPreview }: {
     <div className="build-active-head">
       <div>
         <strong>{project.name}</strong>
-        <code>{project.dir}</code>
+        {/* 路径就是"源码在哪"的答案：点一下就打开文件管理器，比再加一个按钮省地方。 */}
+        <button
+          type="button"
+          className="build-path"
+          data-hint="在文件管理器中打开"
+          aria-label={`打开项目目录：${project.dir}`}
+          onClick={() => void workshop.openDir(project.dir)}
+        >{project.dir}</button>
       </div>
       <span className={`build-status ${snapshot.running ? "is-running" : check?.ready ? "is-ready" : "is-pending"}`}>
         {snapshot.running ? "AI 正在写…" : check?.ready ? "可以验收" : "待修复"}
       </span>
     </div>
+    {snapshot.note && <p className={`build-hint ${snapshot.note.error ? "is-error" : ""}`} aria-live="polite">{snapshot.note.text}</p>}
+    {snapshot.stalled && (
+      <div className="build-stalled" role="group" aria-label="需要你接手">
+        <div>
+          <strong>打开目录自己改</strong>
+          <p>目录里的 index.html 与 manifest.json 就是源码，直接改；改完点「我改完了，重新校验」。</p>
+        </div>
+        <div className="build-stalled-actions">
+          <button type="button" className={btnSecondary} onClick={() => void workshop.openDir()}>打开项目目录</button>
+          <button type="button" className={btnPrimary} onClick={() => void workshop.verify()}>我改完了，重新校验</button>
+        </div>
+      </div>
+    )}
     {check && <>
       <ViolationList problems={check.blocking} />
       <ViolationList problems={check.warnings} />
@@ -90,7 +111,8 @@ export function ActiveProjectCard({ workshop, onPreview }: {
       <p className="build-hint">项目里的内容跟已安装的那一版不一样了——点「确认安装」把这一版装进去，否则打开工具看到的还是旧的。</p>
     )}
     <div className="build-active-actions">
-      <button type="button" className={btnSecondary} onClick={() => void workshop.verify()} disabled={snapshot.busy}>重新校验</button>
+      {/* 交接块里已经有「我改完了，重新校验」，这里就不再重复一个同名动作。 */}
+      {!snapshot.stalled && <button type="button" className={btnSecondary} onClick={() => void workshop.verify()} disabled={snapshot.busy}>重新校验</button>}
       <button type="button" className={btnSecondary} onClick={onPreview} disabled={!check?.tool}>预览</button>
       {/* 文案一直说"把问题复制给 AI"，却只有一段不能一键复制的列表——这里补上按钮。 */}
       {!!check && (check.blocking.length > 0 || check.warnings.length > 0) && (

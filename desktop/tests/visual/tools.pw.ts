@@ -77,3 +77,24 @@ for (const width of [360, 740]) {
     await expect(page.getByLabel("工具包源码")).toBeVisible();
   });
 }
+
+for (const width of [360, 740]) {
+  test(`stalled project hands the work back to the user at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 });
+    await page.goto("/tests/visual/toolsFixture.html?stalled");
+    await page.getByRole("button", { name: /工具项目/ }).click();
+    await expect(page.getByText("打开目录自己改", { exact: true })).toBeVisible();
+    const openDir = page.getByRole("button", { name: "打开项目目录", exact: true });
+    const recheck = page.getByRole("button", { name: "我改完了，重新校验", exact: true });
+    await expect(openDir).toBeInViewport();
+    await expect(recheck).toBeInViewport();
+    // 窄面板下"说明 + 两个按钮"不能撑出横向滚动条。
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `node_modules/.cache/tools-stalled-${width}.png` });
+    // 列表行里的路径也是入口：滚到底确认它没被挤成半行。
+    const rowPath = page.getByRole("list", { name: "工具项目" }).getByRole("button", { name: "打开项目目录：E:/AAW/tools/projects/u1/json-table" });
+    await rowPath.scrollIntoViewIfNeeded();
+    await expect(rowPath).toBeInViewport();
+    await page.screenshot({ path: `node_modules/.cache/tools-stalled-list-${width}.png` });
+  });
+}

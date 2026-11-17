@@ -85,3 +85,31 @@ it("opens Electron directly, routes Manage separately, saves settings and export
   fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));
   expect(service.remove).toHaveBeenCalledWith(sampleTool.id);
 });
+
+/** AI 修不动时不能只留一句话：目录要能打开，校验要能自己发起（docs 22 §4 P0-2）。 */
+it("offers opening the project directory and re-checking once AI gave up", () => {
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  const openDir = vi.fn().mockResolvedValue(undefined);
+  const verify = vi.fn().mockResolvedValue(null);
+  const workshop = {
+    ...fakeWorkshop({
+      project: { dir: "E:/tools/demo", id: "demo", name: "演示" },
+      stalled: true,
+      note: { text: "还有 2 个问题，AI 试了 3 轮也没修好。", error: true },
+    }),
+    openDir,
+    verify,
+  };
+  render(<ToolsPanel service={service} host={host} workshop={workshop} />);
+  fireEvent.click(screen.getByRole("button", { name: /工具项目/ }));
+  expect(screen.getByText(/AI 试了 3 轮也没修好/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "打开项目目录" }));
+  expect(openDir).toHaveBeenCalledWith();
+  fireEvent.click(screen.getByRole("button", { name: "我改完了，重新校验" }));
+  expect(verify).toHaveBeenCalledOnce();
+  // 卡片上的路径本身就是入口，不必再找一个按钮。
+  fireEvent.click(screen.getByRole("button", { name: "打开项目目录：E:/tools/demo" }));
+  expect(openDir).toHaveBeenCalledWith("E:/tools/demo");
+});

@@ -177,12 +177,23 @@
 .aaw-tools .build-active-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
 .aaw-tools .build-active-head > div { min-width: 0; flex: 1 1 200px; }
 .aaw-tools .build-active-head strong { display: block; font-size: 13px; font-weight: 600; color: var(--color-ink); }
-.aaw-tools .build-active-head code { display: block; margin-top: 2px; font-size: 11px; color: var(--color-ink-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 路径做成可点的"伪代码"：保留等宽与省略号，但整行就是「打开目录」。 */
+.aaw-tools .build-path { display: block; max-width: 100%; margin-top: 2px; padding: 0; border: 0; background: none; font-family: Consolas, monospace; font-size: 11px; line-height: 1.5; color: var(--color-ink-subtle); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.aaw-tools .build-path:hover { color: var(--color-info); text-decoration: underline; }
+.aaw-tools .build-path:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; border-radius: 3px; }
 .aaw-tools .build-status { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--color-line); color: var(--color-ink-subtle); }
 .aaw-tools .build-status.is-running { border-color: color-mix(in srgb, var(--color-info) 45%, var(--color-line)); color: var(--color-info); }
 .aaw-tools .build-status.is-ready { border-color: color-mix(in srgb, var(--color-success-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-success-ink, var(--color-info)); }
 .aaw-tools .build-active-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .aaw-tools .build-active-actions button { min-height: 30px; padding: 5px 12px; border-radius: 7px; font-size: 12px; }
+
+/* AI 修不动了：这不是又一条提示，而是"换你上手"的交接点，所以单独成块。 */
+.aaw-tools .build-stalled { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-warning-ink, var(--color-info)) 40%, var(--color-line)); border-radius: 10px; background: var(--color-base); }
+.aaw-tools .build-stalled > div { min-width: 0; flex: 1 1 200px; }
+.aaw-tools .build-stalled strong { display: block; font-size: 12px; color: var(--color-ink); }
+.aaw-tools .build-stalled p { margin-top: 2px; font-size: 11px; line-height: 1.5; color: var(--color-ink-subtle); }
+.aaw-tools .build-stalled-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.aaw-tools .build-stalled-actions button { min-height: 30px; padding: 5px 12px; border-radius: 7px; font-size: 12px; }
 
 /* ── 校验问题 ─────────────────────────────────────────────────────────── */
 .aaw-tools .build-violations { display: grid; gap: 6px; margin-top: 10px; }
@@ -199,7 +210,7 @@
 .aaw-tools .build-project-main { min-width: 0; flex: 1 1 220px; }
 .aaw-tools .build-project-main strong { font-size: 13px; font-weight: 600; color: var(--color-ink); }
 .aaw-tools .build-project-main span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .build-project-main code { display: block; margin-top: 3px; font-size: 11px; color: var(--color-ink-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aaw-tools .build-project-main .build-path { margin-top: 3px; }
 .aaw-tools .build-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .aaw-tools .build-project-actions button { min-height: 28px; padding: 4px 10px; font-size: 12px; border-radius: 7px; }
 .aaw-tools .build-permission { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-warning-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-warning-ink, var(--color-info)); font-style: normal; }

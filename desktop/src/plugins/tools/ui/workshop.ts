@@ -59,6 +59,13 @@ export interface WorkshopSnapshot {
    * 与其让他自己猜，不如在卡片上写明「项目已改动，还没装进去」。
    */
   readonly drift: boolean;
+  /**
+   * AI 自己修不好了：自动回灌用满轮数，或项目连清单都读不出来。
+   *
+   * 此时唯一的出路是人去看文件——所以界面上必须同时给出「打开目录」和
+   * 「我改完了，重新校验」。只写一句"或直接改文件"等于把死路当结论。
+   */
+  readonly stalled: boolean;
   readonly repairs: number;
   /** 前台会话里 AI 是否正在写；面板据此显示"正在写…"。 */
   readonly running: boolean;
@@ -81,6 +88,8 @@ export interface WorkshopService {
   rollback(id: string): Promise<WorkshopNote>;
   /** 改显示名 / 改目录名（= 改 id）。 */
   rename(dir: string, input: { readonly name?: string; readonly id?: string }): Promise<WorkshopNote>;
+  /** 打开项目目录（文件管理器）。目录不在了就给一句明确的话，而不是静默失败。 */
+  openDir(dir?: string): Promise<void>;
   /** 打开一个已有工具项目（继续开发：新开一条会话）。 */
   resume(dir: string): Promise<void>;
   /** 选中一个已有项目作为"当前项目"（只校验，不切视图）。 */
@@ -105,6 +114,13 @@ export function describeInstall(outcome: InstallOutcome, name: string): string {
   return `已更新 ${name}：v${outcome.previousVersion ?? "?"} → v${outcome.version}。`;
 }
 
+/** 校验通过时说同一句话：AI 停下后自动校验、用户手点重新校验，走的是同一个结论。 */
+function passText(check: ToolProjectCheck): string {
+  return check.warnings.length
+    ? `校验通过（${check.warnings.length} 条建议）。可以预览验收了。`
+    : "校验通过，可以预览验收了。";
+}
+
 export function createWorkshop(deps: {
   readonly tools: ToolsService;
   readonly project: ProjectService;
@@ -124,6 +140,7 @@ export function createWorkshop(deps: {
     busy: false,
     installed: false,
     drift: false,
+    stalled: false,
     repairs: 0,
     running: false,
     projects: [],
@@ -185,19 +202,21 @@ export function createWorkshop(deps: {
     if (result.ready) {
       patch({
         repairs: 0,
-        note: {
-          text: result.warnings.length
-            ? `校验通过（${result.warnings.length} 条建议）。可以预览验收了。`
-            : "校验通过，可以预览验收了。",
-        },
+        stalled: false,
+        note: { text: passText(result) },
       });
       return;
     }
     const repairs = store.getState().repairs;
     if (!result.tool || repairs >= maxRepairRounds) {
+      // 到这里自动回灌就到底了。别只留一句"或直接改文件"——用户手里得有
+      // 能打开那个目录的按钮，以及改完能自己发起校验的按钮。
       patch({
+        stalled: true,
         note: {
-          text: `还有 ${result.blocking.length} 个问题没修好，已经试了 ${maxRepairRounds} 轮。可以复制下面的问题继续问 AI，或直接改文件。`,
+          text: result.tool
+            ? `还有 ${result.blocking.length} 个问题，AI 试了 ${maxRepairRounds} 轮也没修好。`
+            : "这个项目读不出 manifest.json，自动校验没法继续。",
           error: true,
         },
       });
@@ -243,7 +262,7 @@ export function createWorkshop(deps: {
 
   async function select(dir: string | null): Promise<void> {
     if (!dir) {
-      patch({ project: null, check: null, installed: false, drift: false, repairs: 0 });
+      patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0 });
       return;
     }
     const summary = store.getState().projects.find((entry) => entry.dir === dir);
@@ -253,6 +272,7 @@ export function createWorkshop(deps: {
         id: summary?.id ?? dir.split(/[\\/]/).pop() ?? "tool",
         name: summary?.name ?? summary?.dirName ?? dir,
       },
+      stalled: false,
       repairs: 0,
     });
     try { await readCheck(dir); }
@@ -263,7 +283,13 @@ export function createWorkshop(deps: {
     const target = dir ?? store.getState().project?.dir;
     if (!target) return null;
     try {
-      return await readCheck(target);
+      const result = await readCheck(target);
+      // 手动点「重新校验」必须留下结论：否则界面看起来跟点之前一模一样，
+      // 用户会怀疑按钮没生效。
+      patch(result.ready
+        ? { stalled: false, repairs: 0, note: { text: passText(result) } }
+        : { note: { text: `还有 ${result.blocking.length} 个问题没解决。`, error: true } });
+      return result;
     } catch (error) {
       patch({ note: { text: errorText(error), error: true } });
       return null;
@@ -304,7 +330,7 @@ export function createWorkshop(deps: {
       const state = store.getState();
       const brief = state.brief.trim();
       if (!brief || state.busy) return;
-      patch({ busy: true, note: null, installed: false, check: null, repairs: 0 });
+      patch({ busy: true, note: null, installed: false, check: null, stalled: false, repairs: 0 });
       try {
         const name = brief.slice(0, 24);
         const wanted = toolProjectIdFromBrief(brief);
@@ -383,6 +409,26 @@ export function createWorkshop(deps: {
         };
       } catch (error) {
         return { text: errorText(error), error: true };
+      }
+    },
+
+    async openDir(dir) {
+      const target = dir ?? store.getState().project?.dir;
+      if (!target) return;
+      if (!host.isNative()) {
+        patch({ note: { text: "浏览器预览模式打不开本地目录，请在桌面版里打开。", error: true } });
+        return;
+      }
+      try {
+        // 目录可能已经被删/移走：那种情况下系统的打开动作要么报错要么静默，
+        // 都不如自己先说清楚。
+        if (!(await io.pathExists(target))) {
+          patch({ note: { text: `项目目录不在了：${target}。可能被移动或删除。`, error: true } });
+          return;
+        }
+        await host.files.openInFileManager(target, "directory");
+      } catch (error) {
+        patch({ note: { text: `打不开目录：${errorText(error)}`, error: true } });
       }
     },
 

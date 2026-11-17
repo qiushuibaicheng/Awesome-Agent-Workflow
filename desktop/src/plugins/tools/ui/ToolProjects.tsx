@@ -65,7 +65,14 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
             {project.network && <em className="build-permission">可联网</em>}
             {!project.hasHtml && <em className="build-missing">还没有 index.html</em>}
           </span>
-          <code>{project.dir}</code>
+          {/* 路径可点：想直接看文件的人不该先"继续开发"再想别的办法。 */}
+          <button
+            type="button"
+            className="build-path"
+            data-hint="在文件管理器中打开"
+            aria-label={`打开项目目录：${project.dir}`}
+            onClick={() => void workshop.openDir(project.dir)}
+          >{project.dir}</button>
           {project.broken && <span className="build-hint is-error">{project.broken}</span>}
         </div>
         {renaming?.dir === project.dir ? (
