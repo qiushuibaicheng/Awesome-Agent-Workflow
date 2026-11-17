@@ -10,7 +10,7 @@
  * （configuration 的 `user:<id>` 键）保持一致——同一件事不会一半按账号、
  * 一半按机器，换账号时"列表"和"源码"永远对得上。
  */
-import { joinPath } from "../../../shared/panelPaths.ts";
+import { joinPath, pathName } from "../../../shared/panelPaths.ts";
 import type { ToolPackage, ToolViolation } from "../types.ts";
 import { validateToolPackage, validateToolPackageText } from "./package.ts";
 import { runToolRules, splitViolations } from "./rules.ts";
@@ -25,6 +25,60 @@ export interface ToolProjectIO {
   writeTextFile(path: string, contents: string): Promise<void>;
 }
 
+export interface ToolProjectSummary {
+  readonly dir: string;
+  /** 目录名；读不到 manifest 时用它顶替，保证列表永远有可读标题。 */
+  readonly dirName: string;
+  readonly id?: string;
+  readonly name?: string;
+  readonly version?: string;
+  readonly hasHtml: boolean;
+  readonly network: boolean;
+  /** manifest 读不出来时的原因，列表上直接展示，免得用户点进去才发现坏了。 */
+  readonly broken?: string;
+}
+
+/**
+ * 扫描工具项目目录，只读 manifest 头，不整页读 index.html。
+ *
+ * 列表页要的是"有哪些项目、哪几个能装"，不是渲染；整目录读会随项目数量
+ * 线性变慢，所以这里只碰 manifest.json，html 只判存在与否。
+ */
+export async function listToolProjectSummaries(
+  io: ToolProjectIO,
+  options: { readonly parent?: string; readonly owner?: string } = {},
+): Promise<readonly ToolProjectSummary[]> {
+  const dirs = await listToolProjects(io, options);
+  const summaries: ToolProjectSummary[] = [];
+  for (const dir of dirs) {
+    const dirName = pathName(dir);
+    const hasHtml = await io.pathExists(joinPath(dir, toolProjectFileNames.html));
+    let manifest: Record<string, unknown> | undefined;
+    let broken: string | undefined;
+    try {
+      const text = await io.readTextFile(joinPath(dir, toolProjectFileNames.manifest));
+      const parsed = JSON.parse(text) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) manifest = parsed as Record<string, unknown>;
+      else broken = "manifest.json 不是对象";
+    } catch (error) {
+      broken = error instanceof Error ? error.message : String(error);
+    }
+    const text = (value: unknown) => typeof value === "string" && value.trim() ? value : undefined;
+    const permissions = manifest?.permissions as { network?: unknown } | undefined;
+    summaries.push({
+      dir,
+      dirName,
+      id: text(manifest?.id),
+      name: text(manifest?.name),
+      version: text(manifest?.version),
+      hasHtml,
+      network: permissions?.network === true,
+      broken,
+    });
+  }
+  return summaries;
+}
+
 export const toolProjectFileNames = {
   manifest: "manifest.json",
   html: "index.html",
@@ -32,10 +86,25 @@ export const toolProjectFileNames = {
   notes: "NOTES.md",
 } as const;
 
-export function toolProjectIdFromWish(wish: string): string {
-  const ascii = wish.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
-  // 中文许愿抽不出 ascii 时用时间戳兜底：id 只是标识，名字另有字段。
-  return ascii || `tool-${Date.now().toString(36)}`;
+/**
+ * manifest 里可选的可信度字段：谁做的、从哪来。
+ *
+ * 导入别人给的 ZIP 时，用户至少应该能看到作者与来源；此前清单只有
+ * id/name/version，导入一个陌生工具等于闭眼执行。
+ */
+export const toolProvenanceFields = ["author", "source"] as const;
+
+/**
+ * 从一段需求描述里取目录名。
+ *
+ * 英文能抽出有意义的前缀（`word count` → `word-count`）；中文抽不出可读的
+ * ascii，退回 `tool` 再由 `freeProjectDir` 依次给出 `tool`、`tool-2`…——
+ * 至少是**可预测、可排序、能在文件管理器里按名字找到**的一组目录，而不是
+ * `tool-m3k9x` 这种连作者自己都认不出来的随机串。名字另有 `manifest.name`。
+ */
+export function toolProjectIdFromBrief(brief: string): string {
+  const ascii = brief.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+  return ascii || "tool";
 }
 
 /**

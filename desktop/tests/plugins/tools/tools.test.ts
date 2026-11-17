@@ -41,7 +41,15 @@ it("maintains distinct personal libraries and keeps recent use when updating", a
     expect(() => tools.saveSettings(a.id, { count: -1 })).toThrow("数量");
     expect(() => tools.install(b)).toThrow("相同 ID");
     tools.open(b.id);
-    tools.install({ ...b, version: "1.1.0" }, true);
+    // 升级要能回答"从哪一版到哪一版"：以前 install 返回 void，界面只能提示
+    // "已安装或更新"，用户不知道版本到底动了没有。
+    const upgraded = tools.install({ ...b, version: "1.1.0" }, true);
+    expect(upgraded).toMatchObject({ updated: true, versionChanged: true, previousVersion: "1.0.0", version: "1.1.0" });
+    expect(tools.state.getState()[0]?.installedAt).toBeTypeOf("number");
+    expect(tools.state.getState()[0]?.updatedAt).toBeTypeOf("number");
+    expect(tools.state.getState()[0]?.previousVersion).toBe("1.0.0");
+    const sameVersion = tools.install({ ...b, version: "1.1.0", html: "<p>改</p>" }, true);
+    expect(sameVersion).toMatchObject({ updated: true, versionChanged: false });
     expect(tools.state.getState().map((entry) => entry.package.id)).toEqual(["b", "a"]);
     account.loginAsDev(second);
     expect(tools.state.getState()).toEqual([]);

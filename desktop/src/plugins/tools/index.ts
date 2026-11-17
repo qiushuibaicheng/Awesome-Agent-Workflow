@@ -1,7 +1,7 @@
 import type { Context } from "cordis";
 import { createStore } from "zustand";
 import { createSnapshotView } from "../../shared/state/readonlySnapshot.ts";
-import type { ToolsService } from "./service.ts";
+import type { InstallOutcome, ToolsService } from "./service.ts";
 import type { PersonalTool } from "./types.ts";
 import { readToolPackage } from "./runtime/package.ts";
 import { resolveToolSettings, validateToolSettings } from "./runtime/settings.ts";
@@ -11,6 +11,10 @@ export const inject = ["account", "configuration"];
 
 export async function installWorkbench(ctx: Context): Promise<void> {
   await ctx.plugin(await import("./ui/workbench.tsx"));
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function readTools(value: unknown): readonly PersonalTool[] {
@@ -23,11 +27,13 @@ function readTools(value: unknown): readonly PersonalTool[] {
     const tool = readToolPackage(fields.package);
     if (!tool || ids.has(tool.id)) continue;
     ids.add(tool.id);
-    const lastOpened = fields.lastOpened;
     tools.push({
       package: tool,
       settings: resolveToolSettings(tool, fields.settings),
-      lastOpened: typeof lastOpened === "number" && Number.isFinite(lastOpened) ? lastOpened : undefined,
+      lastOpened: finiteNumber(fields.lastOpened),
+      installedAt: finiteNumber(fields.installedAt),
+      updatedAt: finiteNumber(fields.updatedAt),
+      ...(typeof fields.previousVersion === "string" ? { previousVersion: fields.previousVersion } : {}),
     });
   }
   return tools.sort((a, b) =>
@@ -64,15 +70,30 @@ export function apply(ctx: Context): void {
 
   ctx.provide(name, {
     state: view.snapshot,
-    install(tool, replace = false) {
+    install(tool, replace = false): InstallOutcome {
+      let outcome: InstallOutcome = { version: tool.version, updated: false, versionChanged: false };
       update((current) => {
         const previous = current.find((entry) => entry.package.id === tool.id);
         if (previous && !replace) throw new Error("已安装相同 ID 的工具。请在开发模式中更新，或先卸载旧版本。");
+        outcome = {
+          version: tool.version,
+          ...(previous ? { previousVersion: previous.package.version } : {}),
+          updated: previous !== undefined,
+          versionChanged: previous !== undefined && previous.package.version !== tool.version,
+        };
+        const now = Date.now();
         return [
           ...current.filter((entry) => entry.package.id !== tool.id),
-          { package: tool, lastOpened: previous?.lastOpened, settings: resolveToolSettings(tool, previous?.settings) },
+          {
+            package: tool,
+            lastOpened: previous?.lastOpened,
+            installedAt: previous?.installedAt ?? now,
+            ...(previous ? { updatedAt: now, previousVersion: previous.package.version } : {}),
+            settings: resolveToolSettings(tool, previous?.settings),
+          },
         ];
       });
+      return outcome;
     },
     open(id) {
       update((current) => current.map((entry) =>

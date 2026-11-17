@@ -1,7 +1,8 @@
 import { expect, it } from "vitest";
 import {
   checkToolProject, createToolProject, listToolProjects, migrateLegacyTools,
-  readToolProject, toolFromProject, toolOwnerSegment, toolProjectIdFromWish, type ToolProjectIO,
+  listToolProjectSummaries, readToolProject, toolFromProject, toolOwnerSegment,
+  toolProjectIdFromBrief, type ToolProjectIO,
 } from "../../../src/plugins/tools/runtime/project.ts";
 import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
 
@@ -135,6 +136,25 @@ it("turns an account id into a safe directory segment", () => {
 });
 
 it("derives a usable id from a Chinese wish", () => {
-  expect(toolProjectIdFromWish("Text Tool")).toBe("text-tool");
-  expect(toolProjectIdFromWish("我想要一个字数统计")).toMatch(/^tool-[a-z0-9]+$/);
+  expect(toolProjectIdFromBrief("Text Tool")).toBe("text-tool");
+  // 中文抽不出可读 ascii 时退回 tool，由 freeProjectDir 依次给出 tool、tool-2…
+  expect(toolProjectIdFromBrief("我想要一个字数统计")).toBe("tool");
+});
+
+it("summarises projects from manifest without loading the whole page", async () => {
+  const { io } = memoryIO();
+  const { dir } = await createToolProject(io, { id: "demo", name: "演示", owner: "u1" });
+  await io.writeTextFile(`${dir}/index.html`, page);
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.2.0", html: "", permissions: { network: true },
+  }));
+  // 一个 manifest 坏掉的目录：列表要能指出来，而不是让用户点进去才发现。
+  await createToolProject(io, { id: "broken", name: "坏的", owner: "u1" });
+  await io.writeTextFile("/data/tools/projects/u1/broken/manifest.json", "{ 不是 JSON");
+
+  const summaries = await listToolProjectSummaries(io, { owner: "u1" });
+  expect(summaries.find((entry) => entry.dirName === "demo")).toMatchObject({
+    id: "demo", name: "演示", version: "1.2.0", hasHtml: true, network: true,
+  });
+  expect(summaries.find((entry) => entry.dirName === "broken")?.broken).toBeTruthy();
 });

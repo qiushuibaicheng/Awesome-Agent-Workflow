@@ -4,37 +4,49 @@ import { parseToolPackage } from "./package.ts";
 import { safeSourcePath } from "./sourceFiles.ts";
 
 export const toolArchiveLimit = 1024 * 1024;
-const buildScript = `import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
-const root = fileURLToPath(new URL('../', import.meta.url));
-const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
-const html = readFileSync(join(root, 'index.html'), 'utf8');
-const sourceFiles = {};
-function collect(folder, prefix = '') {
-  for (const entry of readdirSync(folder, { withFileTypes: true })) {
-    if (['node_modules', 'dist', '.git'].includes(entry.name)) continue;
-    const path = prefix + entry.name;
-    if (entry.isDirectory()) collect(join(folder, entry.name), path + '/');
-    else if (entry.isFile() && !['manifest.json', 'index.html'].includes(path))
-      sourceFiles[path] = readFileSync(join(folder, entry.name), 'utf8');
-  }
-}
-collect(root);
-const result = JSON.stringify({ ...manifest, html, sourceFiles }, null, 2);
-if (Buffer.byteLength(result) > 512 * 1024) throw new Error('工具包不能超过 512 KB');
-if (!/^[a-z0-9][a-z0-9.-]{0,63}$/.test(manifest.id)) throw new Error('Invalid tool ID');
-mkdirSync(join(root, 'dist'), { recursive: true });
-writeFileSync(join(root, 'dist', manifest.id + '.aaw-tool.json'), result);
-console.log('已生成 dist/' + manifest.id + '.aaw-tool.json');
-`;
 
+/** 压缩包里与工具无关的系统垃圾：macOS 的 `__MACOSX/`、`.DS_Store`、`Thumbs.db`。 */
+function isArchiveNoise(path: string): boolean {
+  return path.startsWith("__MACOSX/")
+    || path.includes("/__MACOSX/")
+    || /(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i.test(path);
+}
+
+/**
+ * 导出的源码项目里除了工具本体，还要有"怎么改、怎么装回去"。
+ *
+ * 早先这里生成 `package.json` + `scripts/build.mjs`，要求接收方装 Node 再
+ * `npm run build`——同事拿到 ZIP 第一步就卡住，而产物其实只是把两个文件
+ * 打个包。现在直接写清：改完把整个目录（或本 ZIP）拖回工具中心即可。
+ */
 export function toolProjectFiles(tool: ToolPackage): Record<string, string> {
   const { html, sourceFiles, ...manifest } = tool;
+  const author = tool.author ? `作者：${tool.author}\n` : "";
+  const source = tool.source ? `来源：${tool.source}\n` : "";
   const scaffolding = {
-    "README.md": `# ${tool.name}\n\n这是 AAW 插件的可编辑源码项目。\n\n- index.html：实际运行的完整 HTML、内联 JavaScript 和 CSS。\n- manifest.json：插件身份、AI actions 与 settingsSchema。\n- scripts/build.mjs：使用 Node.js 构建可导入的工具包，无需 npm install。\n\n修改后执行 npm run build，将 dist 下的 .aaw-tool.json 导入 AAW。也可将本目录压缩为 ZIP 直接导入。更新已有 ID 时请在管理页选择更新源码。\n\nindex.html 必须自包含；外部 script src、CSS 引用需要由作者预先打包内联。附加源码文件会保留在导出包中，但宿主不会执行构建脚本。图片请使用 data URL。\n\n通过 window.aawSettings 读取管理页已保存设置；本项目仅包含设置声明与默认值，不包含用户填写值。通过 window.aawActions 暴露 AI 能力，界面按钮复用相同函数。\n`,
-    "package.json": JSON.stringify({ name: `aaw-tool-${tool.id}`, version: tool.version, private: true, type: "module", scripts: { build: "node scripts/build.mjs" } }, null, 2),
-    "scripts/build.mjs": buildScript,
+    "README.md": `# ${tool.name}
+
+${author}${source}
+这是 AAW 工具的源码，不需要 Node、不需要安装依赖、不需要构建。
+
+- \`manifest.json\`：工具身份、AI 动作、设置声明、能力声明
+- \`index.html\`：实际运行的完整页面（HTML + CSS + JS 全在其中）
+
+把目录交给 AI 继续改时，先让它读 \`manifest.json\` 与 \`index.html\`——本包不含
+构建步骤，AI 直接改这两个文件即可。
+
+## 改完怎么装回去
+
+把这个 ZIP（或整个目录）拖进 AAW 的「工具中心」，或在工具中心点「导入工具」选它。
+ID 相同的会覆盖更新；界面会在安装后告诉你版本从哪一版变到了哪一版。
+
+## 注意
+
+- \`index.html\` 必须自包含：外部 \`<script src>\`、外链 CSS 都会被拒绝。
+- 图片用 data URL。
+- 需要跨重启保留的数据用 \`window.aawStore\`，不要用 \`localStorage\`。
+- 会联网的工具要在 \`manifest.json\` 里写 \`"permissions": { "network": true }\`，用户安装时能看到。
+`,
   };
   // Windows treats paths case-insensitively. Author files win over generated
   // scaffolding while retaining their exact contents and original path casing.
@@ -59,6 +71,9 @@ export function importToolProject(bytes: Uint8Array): ToolPackage {
   try {
     files = unzipSync(bytes, { filter: (file) => {
       const path = file.name.replace(/\/$/, "");
+      // macOS 压缩会带一层 `__MACOSX/` 资源目录和 `.DS_Store`；以前它们会被
+      // 当成"不在项目根目录"的证据，用户只看到一句看不懂的报错。
+      if (isArchiveNoise(path)) return false;
       if (!safeSourcePath(path) || names.has(path.toLowerCase())) throw new Error("源码 ZIP 含不安全或重复的文件路径。");
       names.add(path.toLowerCase());
       total += file.originalSize;

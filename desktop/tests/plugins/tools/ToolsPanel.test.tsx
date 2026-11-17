@@ -8,6 +8,7 @@ import type { ToolsService } from "../../../src/plugins/tools/service.ts";
 import type { HostService } from "../../../src/plugins/host/service.ts";
 import { importToolProject } from "../../../src/plugins/tools/runtime/projectArchive.ts";
 import { ToolManagement } from "../../../src/plugins/tools/ui/ToolManagement.tsx";
+import { fakeWorkshop } from "./fakeWorkshop.ts";
 
 it("defers a selected source update until dirty settings are explicitly discarded", () => {
   const update = vi.fn();
@@ -30,7 +31,7 @@ it("keeps unsaved settings until source editing is explicitly confirmed", () => 
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool }]);
   const service = { state, install: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
   const host = { isNative: () => true } as unknown as HostService;
-  render(<ToolsPanel service={service} host={host} />);
+  render(<ToolsPanel service={service} host={host} workshop={fakeWorkshop()} />);
   openCardMenu();
   fireEvent.click(screen.getByRole("menuitem", { name: "管理" }));
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
@@ -56,7 +57,7 @@ it("opens Electron directly, routes Manage separately, saves settings and export
   const write = vi.fn().mockResolvedValue(undefined);
   const host = { isNative: () => true, openToolsElectron: open, writeToolArchive: write,
     dialogs: { saveFile: vi.fn().mockResolvedValue("E:/export.zip") } } as unknown as HostService;
-  render(<ToolsPanel service={service} host={host} />);
+  render(<ToolsPanel service={service} host={host} workshop={fakeWorkshop()} />);
   fireEvent.click(screen.getByRole("button", { name: "打开 JSON 格式化" }));
   await waitFor(() => expect(open).toHaveBeenCalledWith(sampleTool.id));
   expect(document.querySelector("iframe")).toBeNull();

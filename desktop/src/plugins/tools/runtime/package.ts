@@ -171,6 +171,14 @@ export function validateToolPackage(value: unknown): ToolValidation {
     problems.push(fail("FIELD", `icon 只能是 1–2 个字符（一个 emoji 或一到两个字），现在是 ${count} 个。`, "写一个 emoji 或一个汉字，例如 \"字\"；不需要就删掉这个字段。", "icon"));
   }
 
+  // 作者与来源是可选的自由文本：只挡住"写了但是空的/超长的"，不限制格式，
+  // 免得把 R5（不要内置密钥）之外又造一堆装不上的理由。
+  for (const field of ["author", "source"] as const) {
+    const value = tool[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim() || value.length > 200))
+      problems.push(fail("FIELD", `${field} 需要 1–200 字的字符串，现在是 ${JSON.stringify(value).slice(0, 20)}。`, "可省略；author 写作者或团队，source 写来源链接。", field));
+  }
+
   const actions = tool.actions;
   let checkedActions: ToolAction[] | undefined;
   if (actions !== undefined) {
@@ -208,6 +216,8 @@ export function validateToolPackage(value: unknown): ToolValidation {
       ...(checkedActions === undefined ? {} : { actions: checkedActions }),
       ...(tool.settingsSchema === undefined ? {} : { settingsSchema: readSettingsSchema(tool.settingsSchema) }),
       ...(objectOf(permissions)?.network === true ? { permissions: { network: true as const } } : {}),
+      ...(typeof tool.author === "string" && tool.author.trim() ? { author: tool.author.trim() } : {}),
+      ...(typeof tool.source === "string" && tool.source.trim() ? { source: tool.source.trim() } : {}),
       ...(tool.sourceFiles === undefined ? {} : { sourceFiles: readSourceFiles(tool.sourceFiles) }),
     } satisfies ToolPackage,
   };

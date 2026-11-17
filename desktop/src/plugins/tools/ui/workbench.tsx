@@ -2,6 +2,7 @@ import type { Context } from "cordis";
 import { useStore } from "zustand";
 import { WrenchIcon } from "../../../shared/ui/icons.tsx";
 import { ToolsPanel } from "./ToolsPanel.tsx";
+import { createWorkshop } from "./workshop.ts";
 import { prepareProjectLauncher } from "../../project/service.ts";
 
 export const name = "tools-ui";
@@ -11,12 +12,24 @@ export function apply(ctx: Context): void {
   const { workbench, tools, host, project, account } = ctx;
 
   /**
-   * 工具项目的默认目录按账号分一层（`tools/projects/<账号>`），所以面板必须知道
-   * "现在是谁"：换账号登录后重新取一次，目录和安装记录才对得上。
+   * 工坊状态挂在插件上而不是面板上。
+   *
+   * 新建工具会把主内容区切到会话页（`startNewSession` 里的 `openView`），
+   * 面板随即卸载；状态若留在组件里，AI 写完后既没人校验也没有回灌，用户
+   * 回到面板只看到空卡片。放在 `apply()` 这一刻创建，生命周期跟插件走。
    */
+  const workshop = createWorkshop({
+    tools,
+    project,
+    host,
+    owner: () => account.state.getState().currentUser?.id,
+  });
+  ctx.effect(() => () => workshop.dispose(), "tools:workshop");
+
   function ToolsView() {
     const user = useStore(account.state).currentUser;
-    return <ToolsPanel service={tools} host={host} project={project} owner={user?.id} />;
+    // 换账号后目录与安装记录都换了一层，用 key 让面板重新挂载、重新拉列表。
+    return <ToolsPanel key={user?.id ?? "anonymous"} service={tools} host={host} project={project} workshop={workshop} />;
   }
 
   ctx.effect(() => workbench.register("panels", {

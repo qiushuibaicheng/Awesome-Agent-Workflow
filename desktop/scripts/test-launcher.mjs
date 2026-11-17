@@ -80,3 +80,30 @@ test("shortcut changes preserve working key on conflict or write failure, persis
   assert.throws(() => restarted.change("Space"));
   assert.throws(() => restarted.change("Ctrl+Ctrl+K"));
 });
+
+test("falls back to a free shortcut and reports when none is available", () => {
+  const taken = new Set(["Alt+Space", "Ctrl+Alt+Space"]);
+  let saved = {};
+  const api = {
+    register: (key) => (taken.has(key) ? false : (taken.add(key), true)),
+    unregister: (key) => taken.delete(key),
+  };
+  const store = { read: () => saved, update: (patch) => { saved = { ...saved, ...patch }; } };
+  const controller = createShortcutController(api, store, () => {});
+  const result = controller.start();
+  assert.equal(result.ok, true);
+  assert.equal(result.fallbackFrom, "Alt+Space");
+  assert.equal(controller.state.shortcut, "Ctrl+Shift+Space");
+  // 换到的那组要落盘，下次启动不再撞同一个键。
+  assert.equal(saved.shortcut, "Ctrl+Shift+Space");
+
+  const blocked = createShortcutController(
+    { register: () => false, unregister: () => {} },
+    { read: () => ({}), update: () => {} },
+    () => {},
+  );
+  const failed = blocked.start();
+  assert.equal(failed.ok, false);
+  assert.equal(failed.occupied, "Alt+Space");
+  assert.equal(blocked.state.shortcutReady, false);
+});

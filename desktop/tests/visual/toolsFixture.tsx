@@ -5,6 +5,7 @@ import { sampleTool } from "../../src/plugins/tools/ui/sample.ts";
 import { resolveToolSettings } from "../../src/plugins/tools/runtime/settings.ts";
 import type { PersonalTool } from "../../src/plugins/tools/types.ts";
 import type { ToolsService } from "../../src/plugins/tools/service.ts";
+import { fakeWorkshop } from "../plugins/tools/fakeWorkshop.ts";
 import type { HostService } from "../../src/plugins/host/service.ts";
 import "../../src/shared/styles/index.css";
 
@@ -20,8 +21,10 @@ const entries: PersonalTool[] = [
 ];
 const state = createStore<readonly PersonalTool[]>(() => entries);
 const service: ToolsService = {
-  state, install: () => {}, open: () => {}, remove: () => {},
+  state,
+  install: (tool) => ({ version: tool.version, updated: false, versionChanged: false }),
+  open: () => {}, remove: () => {},
   saveSettings: (id, values) => state.setState(state.getState().map((entry) => entry.package.id === id ? { ...entry, settings: resolveToolSettings(entry.package, values) } : entry), true),
 };
 const host = { isNative: () => !new URLSearchParams(location.search).has("web"), openToolsElectron: async () => {} } as unknown as HostService;
-createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh" }}><ToolsPanel service={service} host={host} /></main>);
+createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh" }}><ToolsPanel service={service} host={host} workshop={fakeWorkshop()} /></main>);

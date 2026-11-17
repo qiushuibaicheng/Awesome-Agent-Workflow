@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sampleTool } from "../src/plugins/tools/ui/sample.ts";
 import { exportToolProject, importToolProject } from "../src/plugins/tools/runtime/projectArchive.ts";
-import { unzipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 
 const root = mkdtempSync(join(tmpdir(), "aaw-tools-runtime-test-"));
 const runner = fileURLToPath(new URL("./tools-cli.mjs", import.meta.url));
@@ -69,11 +69,13 @@ try {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, bytes);
   }
-  const built = spawnSync(process.execPath, [join(exported, "scripts", "build.mjs")], { encoding: "utf8", timeout: 10000 });
-  assert.equal(built.status, 0, built.stderr);
-  const rebuilt = JSON.parse(readFileSync(join(exported, "dist", `${sampleTool.id}.aaw-tool.json`), "utf8"));
-  assert.equal(rebuilt.html, sampleTool.html);
-  assert.equal(rebuilt.settingsSchema[0].default, 2);
+  // 导出的源码包不依赖 Node：没有 package.json / 构建脚本，改完直接打包拖回去。
+  assert.ok(existsSync(join(exported, "README.md")));
+  assert.equal(existsSync(join(exported, "scripts", "build.mjs")), false);
+  const repacked = zipSync(Object.fromEntries(Object.entries(unzipSync(archive))));
+  const roundtrip = importToolProject(repacked);
+  assert.equal(roundtrip.html, sampleTool.html);
+  assert.equal(roundtrip.settingsSchema[0].default, 2);
   process.stdout.write("Electron tools CLI smoke passed.\n");
 } finally {
   rmSync(root, { force: true, recursive: true });

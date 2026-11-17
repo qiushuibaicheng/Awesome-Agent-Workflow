@@ -49,24 +49,25 @@ export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onEd
         </form> : <div className="management-empty"><WrenchIcon className="size-6" /><div><strong>此插件暂未提供自定义设置</strong><p>作者添加设置项后，它们会自动出现在这里。</p></div></div>}
       </section>
       <section className="management-card" aria-labelledby="source-title"><div className="management-section-title"><div><h3 id="source-title">源码与开发</h3><p>导出完整源码，交给你或 AI 继续开发</p></div><span className="management-badge">ZIP</span></div>
-        <div className="management-files"><code>manifest.json</code><code>index.html</code><code>scripts/build.mjs</code><span>+ 开发说明与附加源码</span></div>
+        <div className="management-files"><code>manifest.json</code><code>index.html</code><code>AGENTS.md</code><code>README.md</code><span>+ 附加源码</span></div>
         <div className="management-actions"><button type="button" className={btnSecondary} onClick={onExport} disabled={busy}>导出源码 ZIP</button><button type="button" className={btnGhost} onClick={() => picker.current?.click()} disabled={busy}>更新源码</button><button type="button" className={btnGhost} onClick={() => requestAction("编辑工具包", onEdit)}>编辑工具包</button></div>
-        <p className="management-note">导出包含设置声明与默认值，不包含你的个人设置。</p>
+        <p className="management-note">导出的是可直接导入的源码包：不需要 Node、不需要构建，改完拖回工具中心即可。不包含你的个人设置。</p>
         <input ref={picker} type="file" accept=".zip,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) requestAction("更新源码", () => onUpdate(file)); }} />
       </section>
       <section className="management-card" aria-labelledby="actions-title">
         <div className="management-section-title"><div><h3 id="actions-title">AI 动作</h3><p>你和 AI 走的是同一个函数：界面上的操作与下面这些命令等价</p></div><span className="management-badge">{tool.actions?.length ?? 0} 个</span></div>
         {tool.actions?.length ? <ul className="management-actions-list">{tool.actions.map((action) => {
-          const command = `npm run tools -- run ${tool.id} ${action.id}`;
+          // 安装版里没有 npm：真正的入口是安装目录下 tools-runtime/aaw-tools.cmd。
+          const command = `aaw-tools run ${tool.id} ${action.id}`;
           return <li key={action.id} className="management-action">
             <div className="management-action-head"><code>{action.id}</code><CopyButton getText={() => command} label="复制命令" /></div>
             <p>{action.description}</p>
             <code className="management-command">{command}</code>
           </li>;
         })}</ul> : <div className="management-empty"><SquareTerminalIcon className="size-6" /><div><strong>此插件暂未声明动作</strong><p>声明 actions 后，AI 就能通过 CLI 调用与界面相同的逻辑。</p></div></div>}
-        {!!tool.actions?.length && <p className="management-note">参数通过标准输入或 <code>--input-file=&lt;路径&gt;</code> 传入。</p>}
+        {!!tool.actions?.length && <p className="management-note">在 AAW 安装目录的 <code>tools-runtime</code> 下执行 <code>aaw-tools.cmd</code>；源码仓库里等价于 <code>npm run tools -- run …</code>。参数走标准输入或 <code>--input-file=&lt;路径&gt;</code>。</p>}
       </section>
-      <section className="management-card"><div className="management-section-title"><div><h3>插件信息</h3><p>运行能力与标识</p></div></div><dl className="management-meta"><dt>插件 ID</dt><dd><code>{tool.id}</code></dd><dt>运行方式</dt><dd>Electron 独立窗口</dd><dt>AI 接口</dt><dd><SquareTerminalIcon className="size-3.5" />{tool.actions?.length ? `${tool.actions.length} 个 CLI 动作` : "暂未声明"}</dd></dl></section>
+      <section className="management-card"><div className="management-section-title"><div><h3>插件信息</h3><p>运行能力与标识</p></div></div><dl className="management-meta"><dt>插件 ID</dt><dd><code>{tool.id}</code></dd><dt>运行方式</dt><dd>Electron 独立窗口</dd><dt>运行能力</dt><dd>{tool.permissions?.network ? "会联网（http/https）" : "仅本地，不联网"}</dd><dt>AI 接口</dt><dd><SquareTerminalIcon className="size-3.5" />{tool.actions?.length ? `${tool.actions.length} 个 CLI 动作` : "暂未声明"}</dd>{tool.author && <><dt>作者</dt><dd>{tool.author}</dd></>}{tool.source && <><dt>来源</dt><dd className="management-source">{tool.source}</dd></>}{entry.installedAt && <><dt>安装于</dt><dd>{new Date(entry.installedAt).toLocaleString("zh-CN")}</dd></>}{entry.updatedAt && <><dt>最近更新</dt><dd>{new Date(entry.updatedAt).toLocaleString("zh-CN")}{entry.previousVersion ? `（上一版 v${entry.previousVersion}）` : ""}</dd></>}</dl></section>
       <section className="management-remove"><div><h3>卸载插件</h3><p>移除本账号中的插件与设置，可先导出源码保留项目。</p></div>{confirmRemove ? <div className="management-actions"><button type="button" className={btnGhost} onClick={() => setConfirmRemove(false)}>取消</button><DangerButton onClick={onRemove}>确认卸载</DangerButton></div> : <button type="button" className={`${btnGhost} remove-button`} onClick={() => setConfirmRemove(true)}>卸载</button>}</section>
     </div>
   </section>;

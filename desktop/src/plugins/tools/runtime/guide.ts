@@ -36,7 +36,7 @@ export function toolGuide(context: ToolGuideContext): string {
   return `# ${context.name} · AAW 工具项目
 
 你在一个 AAW 个人工具项目里工作。工具 id 是 \`${context.id}\`，目录就是当前工作区。
-用户只负责许愿和验收；技术决策按下面这份契约来，不要反过来问用户。
+用户只负责提需求和验收；技术决策按下面这份契约来，不要反过来问用户。
 
 ## 一个工具是什么
 
@@ -66,7 +66,9 @@ export function toolGuide(context: ToolGuideContext): string {
   "settingsSchema": [
     { "id": "indent", "label": "缩进空格数", "type": "number", "default": 2, "min": 0, "max": 8 }
   ],
-  "permissions": { "network": false }
+  "permissions": { "network": false },
+  "author": "你的名字",
+  "source": "https://…"
 }
 \`\`\`
 
@@ -109,9 +111,33 @@ ${ruleTable()}
 `;
 }
 
-/** 许愿后发给会话的第一条消息：用户原话 + 落点指引，不夹带技术细节。 */
-export function wishMessage(wish: string, context: ToolGuideContext): string {
-  return `我想做一个工具：${wish}
+/**
+ * 装进 agent 技能目录的 `SKILL.md`。
+ *
+ * 项目里的 `AGENTS.md` 只在那个工具项目内生效；用户在**普通会话**里让 AI
+ * 顺手做个工具时，AI 看不到规范，产出的包往往装不上。把同一份正文加个
+ * frontmatter 写进 `chrys/skills/tool-dev/SKILL.md`，全局会话才认得这套契约。
+ */
+export function toolGuideSkill(): string {
+  return `---
+name: tool-dev
+version: "1.0.0"
+description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具定义、项目结构、清单字段、运行时能力、红线与交付前自检。
+---
+
+${toolGuide({ id: "<工具 id>", name: "<工具名>" })}
+
+## 在普通会话里被要求做工具时
+
+1. 先问一句"要不要在工具中心新建一个项目"——建项目会自带本规范与预览、安装链路。
+2. 如果用户只是要一段代码，就把 \`manifest.json\` 与 \`index.html\` 一起给出，并在结尾附上红线自检结果。
+3. 不要把它做成需要构建的 npm 工程：平台只执行自包含的 \`index.html\`。
+`;
+}
+
+/** 用户描述需求后发给会话的第一条消息：用户原话 + 落点指引，不夹带技术细节。 */
+export function briefMessage(brief: string, context: ToolGuideContext): string {
+  return `我想做一个工具：${brief}
 
 项目已经建好了（id: \`${context.id}\`），请先读项目里的 AGENTS.md，然后在当前目录里写 \`manifest.json\` 和 \`index.html\`。
 先给我一句话说明你打算怎么做，再动手。`;

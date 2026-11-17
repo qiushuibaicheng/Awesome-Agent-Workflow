@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, screen } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, Tray, screen } from "electron";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,6 +12,14 @@ import { runCli } from "./cli.mjs";
 const args = process.argv.slice(1);
 const cliMarker = args.indexOf("--aaw-cli");
 const launcherFile = join(import.meta.dirname, "launcher.html");
+
+/** 系统通知：拿不到通知权限或平台不支持时静默跳过，不因为提示失败而影响启动。 */
+function notify(title, body) {
+  try {
+    if (!Notification.isSupported()) return;
+    new Notification({ title, body, silent: true }).show();
+  } catch { /* 通知只是锦上添花 */ }
+}
 const launcherUrl = pathToFileURL(launcherFile).href;
 let launcher;
 let tray;
@@ -189,12 +197,30 @@ function installLauncher(root, isolated) {
     return shortcuts.state;
   });
 
-  shortcuts.start();
+  const shortcutStart = shortcuts.start();
   tray = new Tray(join(import.meta.dirname, "icon.png"));
   function updateTray() {
     tray.setToolTip(shortcuts.state.shortcutReady ? `AAW 启动器 · ${shortcuts.state.shortcut}` : "AAW 启动器 · 请设置快捷键");
   }
   updateTray();
+  /**
+   * 快捷键拿不到时必须主动说一声。
+   *
+   * 以前只有小窗底部一行字和托盘 tooltip——用户按 Alt+Space 没反应，只会
+   * 以为"工具没启动"，然后反复点图标。改用系统通知，说清原因和当前可用
+   * 的替代方式。
+   */
+  if (!shortcutStart.ok) {
+    notify(
+      "快捷键被占用",
+      `${shortcutStart.occupied ?? "Alt+Space"} 已被其他程序占用，备用组合也都没注册上。点击托盘图标仍可打开启动器，或在小窗设置里换一组按键。`,
+    );
+  } else if (shortcutStart.fallbackFrom) {
+    notify(
+      "快捷键已自动换一组",
+      `${shortcutStart.fallbackFrom} 被占用，已改用 ${shortcuts.state.shortcut}。可在小窗设置里再调。`,
+    );
+  }
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "打开 AAW 启动器", click: () => showLauncher() },
     { type: "separator" },

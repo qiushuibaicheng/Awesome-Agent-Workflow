@@ -115,5 +115,6 @@ function sliceObject(text: string): string {
 
 /** 供测试与文档使用：清单里真正会被安装的字段（其余字段在解析时被丢弃）。 */
 export const toolPackageFields: readonly (keyof ToolPackage)[] = [
-  "schemaVersion", "id", "name", "version", "icon", "html", "actions", "settingsSchema", "sourceFiles",
+  "schemaVersion", "id", "name", "version", "icon", "html", "actions", "settingsSchema",
+  "permissions", "author", "source", "sourceFiles",
 ];

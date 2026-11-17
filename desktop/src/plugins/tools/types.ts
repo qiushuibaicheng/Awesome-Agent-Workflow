@@ -44,6 +44,10 @@ export interface ToolPackage {
   readonly actions?: readonly ToolAction[];
   readonly settingsSchema?: readonly ToolSetting[];
   readonly permissions?: ToolPermissions;
+  /** 作者 / 团队名，导入别人给的包时用于判断可信度。 */
+  readonly author?: string;
+  /** 来源说明（仓库地址、内部文档链接等）。 */
+  readonly source?: string;
   /** Additional UTF-8 authoring files. The executable entry remains self-contained html. */
   readonly sourceFiles?: Readonly<Record<string, string>>;
 }
@@ -64,5 +68,11 @@ export type ToolSetting = {
 export interface PersonalTool {
   readonly package: ToolPackage;
   readonly lastOpened?: number;
+  /** 首次安装时间（毫秒）。升级不改写，用来回答"这工具什么时候装上的"。 */
+  readonly installedAt?: number;
+  /** 最近一次覆盖安装的时间（毫秒）。 */
+  readonly updatedAt?: number;
+  /** 被这次覆盖掉的版本号，安装后提示「v1.0 → v2.0」用。 */
+  readonly previousVersion?: string;
   readonly settings?: ToolSettings;
 }
