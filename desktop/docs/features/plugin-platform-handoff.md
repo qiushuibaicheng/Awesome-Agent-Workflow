@@ -285,3 +285,9 @@ runtime/projectArchive.ts 添加自动README前，按实际重导入的JSON校�
 launcher.js 捕获快捷键时，保留普通Tab/Shift+Tab的焦点导航和普通Enter的表单提交；其余组合键继续按原规则捕获。原实现无条件preventDefault，使输入框无法用Tab离开，并把Enter误报为不支持的快捷键主键。
 
 launcherPage.test.ts增加事件默认行为回归。无头Edge加载真实小窗HTML/JS/CSS，实测输入组合键后Tab到保存按钮、Shift+Tab返回、Enter提交，模拟IPC仅收到一次新快捷键。未注册真实快捷键、未改主窗；运行中Electron需后续构建/重启加载新脚本。
+
+## 2026-11-17 23:33 修复：备用快捷键别名与自身冲突
+
+最新快捷键控制器位于 tools-runtime/shortcut.mjs，配套类型声明 shortcut.d.mts，注册表再导出接口。启动备用组合与用户输入统一走 normalizeShortcut 后再注册、保存和比较，避免 Ctrl+Alt+Space 与 Control+Alt+Space 被误判为两组键而重复注册。
+
+launcherShortcut.test.ts 的注册模拟按标准化结果识别同一热键，新增默认键冲突后选用备用键、再次保存同一备用键的回归；原实现会误报被其他程序占用。本轮不修改录制让位/恢复时机，也未注册真实系统快捷键。

@@ -43,7 +43,7 @@ export function createShortcutController(api, store, callback) {
         ready = true;
         return { ok: true };
       }
-      for (const candidate of fallbackShortcuts) {
+      for (const candidate of fallbackShortcuts.map(normalizeShortcut)) {
         if (candidate === configured) continue;
         if (!api.register(candidate, callback)) continue;
         current = candidate;

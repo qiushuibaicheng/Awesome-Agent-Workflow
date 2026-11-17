@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { createShortcutController } from "../../../tools-runtime/shortcut.mjs";
+import { createShortcutController, normalizeShortcut } from "../../../tools-runtime/shortcut.mjs";
 
 /**
  * 录制快捷键时全局热键必须先让出来，否则用户按下的第一下就是当前生效的那组，
@@ -11,11 +11,12 @@ function boot(initial = "Alt+Space") {
   let saved = initial;
   const api = {
     register: vi.fn((accelerator: string) => {
-      if (registered.has(accelerator)) return false;
-      registered.add(accelerator);
+      const key = normalizeShortcut(accelerator);
+      if (registered.has(key)) return false;
+      registered.add(key);
       return true;
     }),
-    unregister: vi.fn((accelerator: string) => { registered.delete(accelerator); }),
+    unregister: vi.fn((accelerator: string) => { registered.delete(normalizeShortcut(accelerator)); }),
   };
   const store = {
     read: () => ({ shortcut: saved }),
@@ -80,4 +81,14 @@ it("恢复时被别的程序抢走，就把状态标成不可用而不是假装�
 
   controller.resume();
   expect(controller.state.shortcutReady).toBe(false);
+});
+
+it("saves the active fallback without treating its Ctrl alias as a conflicting shortcut", () => {
+  const { api, controller, registered, saved } = boot();
+  api.register.mockReturnValueOnce(false);
+  expect(controller.start()).toEqual({ ok: true, fallbackFrom: "Alt+Space" });
+  expect(registered.has("Control+Alt+Space")).toBe(true);
+  expect(() => controller.change("Control+Alt+Space")).not.toThrow();
+  expect(controller.state).toEqual({ shortcut: "Control+Alt+Space", shortcutReady: true });
+  expect(saved()).toBe("Control+Alt+Space");
 });
