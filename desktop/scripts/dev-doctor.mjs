@@ -17,7 +17,7 @@
  * 删除别人的正在运行的进程不该由构建脚本来做。
  */
 import { spawnSync } from "node:child_process";
-import { closeSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -121,6 +121,64 @@ function wordable(path) {
   } catch (error) {
     if (error.code === "ENOENT") return null;
     return { code: error.code ?? "未知错误", message: error.message };
+  }
+}
+
+/**
+ * WebView2 不是"装没装"一个维度：Win11 自带 Runtime 也会因为用户数据目录
+ * 写不进去、或 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` 指向一个已经不存在的位置
+ * 而报"创建 WebView2 失败"。这几种在代码侧完全看不出来，只能查注册表和目录。
+ *
+ * 一次 PowerShell 查完，避免四次 spawn：
+ * - Runtime 版本落在三个注册表位置之一（系统级 32 位 / 系统级 64 位 / 用户级）
+ * - override 变量存在时优先于 Runtime，指错了就是创建失败
+ * - 组策略键存在时可能被限定了允许列表，自己改不动
+ * - 用户数据目录写一个探针文件：写不进去说明被安全软件或权限挡住
+ * - 本项目的 msedgewebview2.exe 还在跑：它会占着同一个用户数据目录
+ */
+function webview2Status() {
+  if (process.platform !== "win32") return null;
+  const keys = [
+    "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    "HKLM:\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    "HKCU:\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+  ];
+  // 注意：必须拼成单行。Windows 上 spawnSync 传含换行的 -Command 参数会被截断，
+  // 结果是 stdout 为空、检查静默失效（踩过一次）。
+  const script = [
+    "$version = $null;",
+    `foreach ($k in @(${keys.map((key) => `'${key}'`).join(",")})) {`,
+    "if (Test-Path $k) {",
+    "$v = (Get-ItemProperty $k -ErrorAction SilentlyContinue).pv;",
+    "if ($v) { $version = $v; break }",
+    "}",
+    "};",
+    "$dir = Join-Path $env:LOCALAPPDATA 'com.aaw.desktop\\EBWebView';",
+    "$dirState = 'absent';",
+    "if (Test-Path $dir) {",
+    "try {",
+    "$probe = Join-Path $dir '.doctor-probe';",
+    "[IO.File]::WriteAllText($probe, '');",
+    "Remove-Item $probe -Force;",
+    "$dirState = 'writable'",
+    "} catch { $dirState = 'locked' }",
+    "};",
+    `$pids = @(Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*com.aaw.desktop*' } | ForEach-Object { $_.ProcessId });`,
+    "[pscustomobject]@{ version = $version; override = $env:WEBVIEW2_BROWSER_EXECUTABLE_FOLDER;",
+    "policy = (Test-Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2');",
+    "dir = $dir; dirState = $dirState; webviewPids = $pids } | ConvertTo-Json -Compress",
+  ].join(" ");
+  const result = spawnSync(
+    "powershell",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { encoding: "utf8", windowsHide: true },
+  );
+  const text = (result.stdout ?? "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }
 
@@ -232,6 +290,49 @@ try {
   warn(
     "node_modules/electron 缺二进制：ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js",
   );
+}
+
+// 6. WebView2：窗口创建不出来时，问题在运行时/用户数据目录，不在业务代码。
+const webview = webview2Status();
+if (webview) {
+  const override = String(webview.override ?? "").trim();
+  if (override) {
+    // 固定版本模式：变量优先级高于系统 Runtime，指错了就直接创建失败。
+    if (existsSync(override))
+      report("ok", `WebView2 用固定版本：${override}`);
+    else
+      warn(
+        `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER 指向不存在的目录：${override}——清掉这个变量（或改回真实路径）再启动，否则窗口建不出来。`,
+      );
+  } else if (webview.version) {
+    report("ok", `WebView2 Runtime ${webview.version}`);
+  } else {
+    warn(
+      "注册表的三个位置都没找到 WebView2 Runtime：装 Evergreen 离线包（MicrosoftEdgeWebView2RuntimeInstallerX64.exe），内网拿不到找 IT 要。",
+    );
+  }
+
+  if (webview.policy)
+    warn(
+      "存在 WebView2 组策略（HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2）：可能限定了允许的运行时；这一项要 IT 放开。",
+    );
+
+  if (webview.dirState === "locked")
+    warn(
+      `WebView2 用户数据目录不可写：${webview.dir}——窗口会创建失败。先退出所有 desktop/msedgewebview2，仍失败就把这个目录改名成 EBWebView.bak 让它重建（会丢登录态和缓存）。`,
+    );
+  else if (webview.dirState === "writable")
+    report("ok", "WebView2 用户数据目录可写");
+
+  const webviewPids = Array.isArray(webview.webviewPids)
+    ? webview.webviewPids
+    : webview.webviewPids
+      ? [webview.webviewPids]
+      : [];
+  if (webviewPids.length)
+    warn(
+      `${webviewPids.length} 个本项目的 msedgewebview2.exe 还在跑（PID ${webviewPids.join(" / ")}）：它们持有同一个用户数据目录，第二次启动会创建失败。`,
+    );
 }
 
 if (problems.length) {
