@@ -166,3 +166,18 @@ it("retains the edited shortcut when restoring the default fails", async () => {
   await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalledTimes(2));
   expect(accelerator.value).toBe("Control+Alt+K");
 });
+
+it("lets Tab navigate and Enter submit the shortcut form without capturing them", async () => {
+  const { launcher } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  document.getElementById("settings-open")!.click();
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+  const original = accelerator.value;
+  for (const init of [{ key: "Tab", code: "Tab" }, { key: "Tab", code: "Tab", shiftKey: true }, { key: "Enter", code: "Enter" }]) {
+    const event = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
+    accelerator.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(accelerator.value).toBe(original);
+  }
+  expect(document.getElementById("shortcut-hint")!.textContent).not.toContain("不能作为主键");
+});

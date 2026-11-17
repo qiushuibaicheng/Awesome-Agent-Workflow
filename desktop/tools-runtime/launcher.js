@@ -201,6 +201,10 @@ $("accelerator").addEventListener("input", () => { acceleratorDirty = true; });
 $("accelerator").addEventListener("keydown", (event) => {
   if (!settingsOpen) return;
   if (event.key === "Escape") { acceleratorDirty = false; $("accelerator").value = savedShortcut; hint(""); return; }
+  // Preserve focus navigation and form submission instead of trapping the
+  // keyboard inside this read-only shortcut capture field.
+  const navigation = !event.ctrlKey && !event.altKey && !event.metaKey;
+  if (navigation && (event.key === "Tab" || event.key === "Enter" && !event.shiftKey)) return;
   event.preventDefault();
   const next = shortcutFromEvent(event);
   if (next.error) { hint(next.error); return; }

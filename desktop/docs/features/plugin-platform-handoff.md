@@ -279,3 +279,9 @@ tests/plugins/tools/tools.test.ts 覆盖等待队列和读取文件两个时间�
 runtime/projectArchive.ts 添加自动README前，按实际重导入的JSON校验文件数与字节数；若会超过64个sourceFiles或512 KB工具包上限，仅省略生成的说明，保留全部作者文件、HTML与清单。普通小包仍生成README，作者自己提供的README继续优先且不会被删除。
 
 导入没有附加文件的源码ZIP时，不额外写入空sourceFiles字段，避免恰好512 KB的合法包因无意义元数据超过上限。projectArchive.test.ts新增64文件、接近字节上限和精确字节上限三种往返回归。未放宽原有导入限制，不影响账号目录编码；已知账号目录碰撞仍待单独解决。
+
+## 2026-11-17 21:31 修复：快捷键输入框的键盘陷阱
+
+launcher.js 捕获快捷键时，保留普通Tab/Shift+Tab的焦点导航和普通Enter的表单提交；其余组合键继续按原规则捕获。原实现无条件preventDefault，使输入框无法用Tab离开，并把Enter误报为不支持的快捷键主键。
+
+launcherPage.test.ts增加事件默认行为回归。无头Edge加载真实小窗HTML/JS/CSS，实测输入组合键后Tab到保存按钮、Shift+Tab返回、Enter提交，模拟IPC仅收到一次新快捷键。未注册真实快捷键、未改主窗；运行中Electron需后续构建/重启加载新脚本。
