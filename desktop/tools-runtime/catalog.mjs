@@ -18,6 +18,22 @@ export function defaultRoot() {
   throw new Error("请指定 AAW_TOOLS_DATA_ROOT。");
 }
 
+/**
+ * 主窗外观（workbench 写在 `aaw-desktop.settings.v1` 里的 theme）。
+ *
+ * 启动器要跟随主窗：主窗默认就是深色，小窗却长期写死浅色——半夜按快捷键
+ * 弹出一整块白板。这里只读，不做任何写入。
+ * `warm` 是主窗对浅色主题的叫法（`theme-warm` 根类）。
+ */
+export function readAppearance(root) {
+  const storage = readRecord(join(root, "storage-location.json")).active || root;
+  const settings = readRecord(join(storage, "configuration", "preferences.json"));
+  let value;
+  try { value = JSON.parse(settings["aaw-desktop.settings.v1"] || "null"); }
+  catch { /* 偏好文件里存了坏数据就按默认深色处理 */ }
+  return { theme: value?.theme === "warm" ? "warm" : "dark" };
+}
+
 export function getCatalog(root) {
   const storage = readRecord(join(root, "storage-location.json")).active || root;
   const configuration = join(storage, "configuration");

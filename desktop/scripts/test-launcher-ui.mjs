@@ -33,7 +33,7 @@ try {
   await expect(page.getByRole("button", { name: "取消固定 测试工具 17", exact: true })).toBeAttached();
   await page.getByLabel("搜索功能", { exact: true }).fill("");
   await expect(page.locator("#pinned .item")).toHaveCount(3);
-  await page.getByRole("button", { name: "展开 (18)", exact: true }).click();
+  await page.getByRole("button", { name: "查看全部最近 (18)", exact: true }).click();
   await expect(page.locator("#results .item")).toHaveCount(18);
   for (const [width, height] of [[800, 360], [360, 300]]) {
     await app.evaluate(({ BrowserWindow }, size) => {
@@ -49,11 +49,14 @@ try {
     if (layout.overflow > layout.width || layout.footer > layout.height) throw new Error(`布局溢出 ${JSON.stringify(layout)}`);
   }
   await page.getByRole("button", { name: "启动器设置", exact: true }).click();
-  await page.getByLabel("全局唤起快捷键", { exact: true }).fill("Ctrl+Alt+F11");
+  // 快捷键改成按键捕获：输入框只读，直接按组合键。
+  await page.getByLabel("全局唤起快捷键", { exact: true }).focus();
+  await page.keyboard.press("Control+Alt+F11");
   await page.getByRole("button", { name: "保存快捷键", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("快捷键已保存，即刻生效。");
   await app.evaluate(({ globalShortcut }) => globalShortcut.register("Control+Alt+F10", () => {}));
-  await page.getByLabel("全局唤起快捷键", { exact: true }).fill("Ctrl+Alt+F10");
+  await page.getByLabel("全局唤起快捷键", { exact: true }).focus();
+  await page.keyboard.press("Control+Alt+F10");
   await page.getByRole("button", { name: "保存快捷键", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("原快捷键已保留");
   await expect(page.locator("#shortcut")).toHaveText("Ctrl + Alt + F11");

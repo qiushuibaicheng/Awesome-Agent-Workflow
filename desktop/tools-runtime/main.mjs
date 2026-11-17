@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, screen
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { defaultRoot } from "./catalog.mjs";
+import { defaultRoot, readAppearance } from "./catalog.mjs";
 import { createLauncherCatalog, createLauncherStore, createShortcutController } from "./launcher-registry.mjs";
 import { createDesktopBridge } from "./desktop-bridge.mjs";
 import { prepareRuntime, loadTool } from "./runtime.mjs";
@@ -41,6 +41,8 @@ function watchDesktop(pid) {
 
 function installLauncher(root, isolated) {
   const store = createLauncherStore(root);
+  // 窗口底色跟着主窗主题走：深色默认值，warm（浅色）用原浅底，避免出现瞬间闪白。
+  const launcherBackground = () => readAppearance(root).theme === "warm" ? "#f7f8fa" : "#16181f";
   const catalog = createLauncherCatalog(root, store, {
     openTool: (tool, settings) => loadTool(isolated, tool, true, settings), openDesktop: createDesktopBridge(),
   });
@@ -60,7 +62,7 @@ function installLauncher(root, isolated) {
       launcher = new BrowserWindow({
         show: false, width: 800, height: 360, resizable: false,
         frame: false, alwaysOnTop: true, skipTaskbar: true,
-        roundedCorners: true, backgroundColor: "#f7f8fa",
+        roundedCorners: true, backgroundColor: launcherBackground(),
         webPreferences: {
           preload: join(import.meta.dirname, "preload.cjs"),
           sandbox: true, nodeIntegration: false, contextIsolation: true,
@@ -74,6 +76,8 @@ function installLauncher(root, isolated) {
       void launcher.loadFile(launcherFile).catch((error) => dialog.showErrorBox("AAW 启动器", error.message));
       return;
     }
+    // 主题可能在两次唤起之间被改过，这里再同步一次底色，避免切换瞬间闪出另一套底色。
+    launcher.setBackgroundColor(launcherBackground());
     const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const width = Math.min(800, workArea.width - 24);
     const height = Math.min(360, workArea.height - 24);
@@ -98,8 +102,8 @@ function installLauncher(root, isolated) {
     verifySender(event);
     const { entries, signedIn } = catalog.read();
     return { entries: entries.map((entry) => {
-      const { id, name, description, keywords, source, scope, icon, recent, pinned, pinOrder } = entry;
-      return { id, name, description, keywords, source, scope, icon, recent, pinned, pinOrder };
+      const { id, name, description, keywords, source, scope, icon, glyph, tone, recent, pinned, pinOrder } = entry;
+      return { id, name, description, keywords, source, scope, icon, glyph, tone, recent, pinned, pinOrder };
     }), signedIn, ...shortcuts.state };
   });
   ipcMain.handle("tools:open", async (event, id) => {
@@ -114,6 +118,10 @@ function installLauncher(root, isolated) {
   ipcMain.handle("launcher:pin", (event, id, pinned) => {
     verifySender(event);
     catalog.pin(id, pinned);
+  });
+  ipcMain.handle("launcher:theme", (event) => {
+    verifySender(event);
+    return readAppearance(root).theme;
   });
   ipcMain.handle("launcher:shortcut", (event, value) => {
     verifySender(event);

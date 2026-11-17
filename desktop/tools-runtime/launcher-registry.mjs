@@ -1,6 +1,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readRecord, getCatalog } from "./catalog.mjs";
+import { toneOf, toolGlyph } from "./tone.mjs";
 
 export function createLauncherStore(root) {
   const path = join(root, "launcher-settings.json");
@@ -39,7 +40,10 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
   registry.register("personal", () => getCatalog(root).tools.map((entry) => ({
     id: `personal:${entry.tool.id}`, name: entry.tool.name,
     description: `个人工具 · v${entry.tool.version}`, keywords: [entry.tool.id, "工具", "plugin"],
-    source: "personal", scope: "personal", icon: "tool", recent: entry.lastOpened,
+    source: "personal", scope: "personal", icon: "tool",
+    // 字形与色板在这里算好再下发：页面只负责渲染，避免主窗/小窗两份实现漂移。
+    glyph: toolGlyph(entry.tool), tone: toneOf(entry.tool.id),
+    recent: entry.lastOpened,
     open: async () => { await openTool(entry.tool, entry.settings); entry.touch(); },
   })));
   registry.register("builtin", () => [
