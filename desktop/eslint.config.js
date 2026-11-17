@@ -15,6 +15,9 @@ export default tseslint.config(
   {
     ignores: [
       "dist/**",
+      // Electron 工具宿主的构建产物（npm run tools:build 生成，gitignore 不入库）：
+      // 里面是复制过的 .mjs 与二进制，不该参与源码 lint。
+      "tools-runtime/dist/**",
       "src-tauri/target/**",
       "src-tauri/target-*/**",
       "src-tauri/gen/**",
