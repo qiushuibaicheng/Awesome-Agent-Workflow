@@ -1,0 +1,175 @@
+/**
+ * 工具红线检查。
+ *
+ * 每条规则对应 AI 开发手册（`skills/tool-dev/SKILL.md`）里的一个编号，两边的
+ * 编号集合必须一致——手册写了但代码不查，手册三个月后就是谎话；代码查了但手册
+ * 没写，AI 就会一头雾水地反复踩同一个坑。`rules.test.ts` 会断言这一点。
+ *
+ * 分级只有两种：`block` 装不上（结构性问题，装上去也跑不起来）、`warn` 只提醒
+ * （能跑，但有代价）。产品决定是"尽量不约束"，所以能 warn 的绝不 block。
+ */
+import type { ToolPackage, ToolViolation } from "../types.ts";
+
+export const ruleIds = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"] as const;
+export type RuleId = (typeof ruleIds)[number];
+
+/**
+ * 红线的一句话版本。手册文本（`guide.ts` 生成的 AGENTS.md）、提示文案与测试
+ * 都从这里取，避免"文档写一套、代码查另一套"。
+ */
+export const ruleGuidance: Readonly<Record<RuleId, {
+  readonly level: "block" | "warn";
+  readonly rule: string;
+  readonly fix: string;
+}>> = {
+  R1: { level: "block", rule: "id 创建后不可改", fix: "继续原工具就保持原 id；确实另起一个就在回复里说明这是新工具" },
+  R2: { level: "block", rule: "界面必须自包含，不得引用外部 script/style", fix: "把依赖源码内联进同一个 <script>/<style>" },
+  R3: { level: "block", rule: "清单声明的动作必须都有实现", fix: "在 <script> 末尾写 window.aawActions = { … }，与界面按钮共用同一函数" },
+  R4: { level: "warn", rule: "设置只能经 settingsSchema 声明", fix: "设置写进清单，代码读只读的 window.aawSettings" },
+  R5: { level: "warn", rule: "不得把密钥/口令写进 html", fix: "改成设置项由用户填，或运行时让用户输入" },
+  R6: { level: "warn", rule: "需要留存的数据走 window.aawStore", fix: "await aawStore.set(k, v) / get(k)；localStorage 重启即清空" },
+  R7: { level: "warn", rule: "不得写死 ≥800px 的宽度", fix: "用 width:100% + max-width，避免窄窗口横向溢出" },
+  R8: { level: "block", rule: "联网必须在清单里声明 permissions.network", fix: "加 \"permissions\": { \"network\": true }" },
+};
+
+/** 手册里每条红线的一句话摘要，供提示文案与测试共用。 */
+export const ruleTitles: Readonly<Record<RuleId, string>> = Object.fromEntries(
+  ruleIds.map((id) => [id, ruleGuidance[id].rule]),
+) as Record<RuleId, string>;
+
+const externalScript = /<script\b[^>]*\bsrc\s*=\s*["'][^"']+["']/i;
+const externalStyle = /<link\b[^>]*\brel\s*=\s*["']?stylesheet/i;
+const cssImport = /@import\s+(?:url\()?["']?https?:/i;
+const dynamicImport = /\bimport\s*\(\s*["'`]\s*(?:https?:|\/\/)/i;
+const remoteFetch = /\b(?:fetch|XMLHttpRequest|EventSource|WebSocket)\b/;
+const localStore = /\b(?:localStorage|sessionStorage)\b/;
+const legacySettingWrite = /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*["'`](?:setting|aaw-settings)/i;
+const fixedWidth = /(?<![-\w])width\s*:\s*(\d{3,4})px/gi;
+const secretPatterns: readonly { readonly pattern: RegExp; readonly label: string }[] = [
+  { pattern: /\bsk-[A-Za-z0-9]{16,}/, label: "OpenAI 风格密钥" },
+  { pattern: /\bAK(?:IA|ID)[A-Za-z0-9]{12,}/, label: "云厂商 AccessKey" },
+  { pattern: /\b(?:password|passwd|secret|token|api[-_]?key)\s*[:=]\s*["'][^"']{8,}["']/i, label: "硬编码口令/令牌" },
+];
+
+function violation(
+  ruleId: RuleId,
+  level: ToolViolation["level"],
+  message: string,
+  hint: string,
+  where?: string,
+): ToolViolation {
+  return { ruleId, level, ...(where === undefined ? {} : { where }), message, hint };
+}
+
+export interface ToolRuleOptions {
+  /** 升级前该工具项目里记录的 id；与当前 id 不同即视为改名。 */
+  readonly previousId?: string;
+}
+
+/**
+ * 跑一遍全部红线。`block` 会让"安装/更新"拒绝执行，`warn` 只展示。
+ *
+ * 检查对象是"将要安装的那一份"：清单 + html 文本。不做运行时探测——这里要的是
+ * 快（用户点安装时同步返回），代价是宁可漏报也不误报太多。
+ */
+export function runToolRules(tool: ToolPackage, options: ToolRuleOptions = {}): readonly ToolViolation[] {
+  const problems: ToolViolation[] = [];
+  const html = tool.html;
+
+  // R1 · 改 id = 新工具。改名会让用户的设置与存储数据失联，必须显式二选一。
+  if (options.previousId !== undefined && options.previousId !== tool.id)
+    problems.push(violation("R1", "block",
+      `插件 id 从 ${options.previousId} 改成了 ${tool.id}。改 id 等于新建一个工具，旧工具的设置与数据会留在原 id 下。`,
+      `二选一：想继续演进原工具就把 id 改回 "${options.previousId}"；确实要另起一个就把 id 保留为新值，并在回复里说明这是新工具。`,
+      "manifest.id"));
+
+  // R2 · 外链在沙箱里加载不到，用户看到的是"样式没生效/按钮点不动"的白屏。
+  if (externalScript.test(html) || externalStyle.test(html) || cssImport.test(html) || dynamicImport.test(html))
+    problems.push(violation("R2", "block",
+      "HTML 里引用了外部脚本或样式。工具的沙箱不允许外部资源，这些引用加载不到。",
+      "把依赖内联进同一个 <script>/<style>（例如把库源码贴进 html），或改成自己手写的最简实现。",
+      "index.html"));
+
+  // R3 · 清单声明了动作却没挂实现，AI 一调用就报"工具未实现动作"。
+  const declaresAction = (tool.actions?.length ?? 0) > 0;
+  const implementsAction = /\baawActions\b/.test(html);
+  if (declaresAction && !implementsAction)
+    problems.push(violation("R3", "block",
+      `清单声明了 ${tool.actions?.length} 个动作，但 html 里没有给 window.aawActions 赋值。`,
+      "在 <script> 末尾写 window.aawActions = { <动作id>: async (input) => ... }，并让界面按钮调用同一个函数。",
+      "index.html"));
+  if (!declaresAction && implementsAction)
+    problems.push(violation("R3", "warn",
+      "html 里实现了 aawActions，但清单没有声明 actions，AI 无法调用这个工具。",
+      "把每个动作补进清单的 actions：{ id, description, inputSchema }。"));
+  if (!declaresAction && !implementsAction)
+    problems.push(violation("R3", "warn",
+      "这个工具没有声明任何动作，只能人工点击使用，AI 用不了它。",
+      "至少暴露一个动作，让界面按钮与 AI 走同一个函数。"));
+
+  // R4 · 自己造设置项，用户既找不到也保存不了。
+  if (legacySettingWrite.test(html))
+    problems.push(violation("R4", "warn",
+      "代码里在往 localStorage 写设置项，这类设置不会出现在管理页，用户改不了。",
+      "把设置项写进清单的 settingsSchema，代码里用只读的 window.aawSettings 读取。",
+      "index.html"));
+
+  // R5 · 工具会被分享，写进 html 的密钥等于公开发布。只提醒，不阻止。
+  for (const { pattern, label } of secretPatterns) {
+    const match = pattern.exec(html);
+    if (!match) continue;
+    problems.push(violation("R5", "warn",
+      `html 里疑似写了${label}（${match[0].slice(0, 12)}…）。工具包是可以被分享的，密钥会被一起发出去。`,
+      "把密钥挪到设置项让用户自己填，或改成请求时让用户输入；不要写死在 html 里。",
+      "index.html"));
+    break;
+  }
+
+  // R6 · 工具窗口跑在内存分区里，localStorage 在 AAW 重启后会被清空。
+  // 写设置项的用法归 R4 管，这里只看"拿它当业务存储"的情况，避免同一个毛病报两遍。
+  const businessStore = localStore.exec(html.replace(new RegExp(legacySettingWrite.source, "gi"), ""));
+  if (businessStore)
+    problems.push(violation("R6", "warn",
+      `代码里用了 ${businessStore[0]}。工具窗口是内存分区，AAW 重启后这里的数据会被清空。`,
+      "需要跨重开保留的数据改用 window.aawStore（await aawStore.set(k, v) / get(k)）；只在本次运行内用的临时状态可以继续用内存变量。",
+      "index.html"));
+
+  // R7 · 写死宽度在小窗（最小 360px）里会横向溢出。
+  let widest = 0;
+  for (const match of html.matchAll(fixedWidth)) widest = Math.max(widest, Number(match[1]));
+  if (widest >= 800)
+    problems.push(violation("R7", "warn",
+      `样式里写死了 ${widest}px 宽度。用户可能把工具窗口缩到 360px，会横向溢出。`,
+      "改用 max-width、百分比或 clamp()，例如 width: 100%; max-width: 62rem;",
+      "index.html"));
+
+  // R8 · 联网要能被用户在安装前看到。
+  const triesNetwork = remoteFetch.test(html) && /(?:https?:|\/\/)/.test(html);
+  if (triesNetwork && tool.permissions?.network !== true)
+    problems.push(violation("R8", "block",
+      "html 里会发起网络请求，但清单没有声明 permissions.network。安装时用户看不到「这个工具会联网」。",
+      "在清单里补 \"permissions\": { \"network\": true }。",
+      "manifest.permissions"));
+
+  return problems;
+}
+
+/** 只有 block 会让安装失败；warn 收集起来展示。 */
+export function splitViolations(problems: readonly ToolViolation[]): {
+  readonly blocking: readonly ToolViolation[];
+  readonly warnings: readonly ToolViolation[];
+} {
+  return {
+    blocking: problems.filter((problem) => problem.level === "block"),
+    warnings: problems.filter((problem) => problem.level === "warn"),
+  };
+}
+
+/** 把问题列表压成一段能喂回会话的中文文本（AI 要能直接照着改）。 */
+export function describeViolations(problems: readonly ToolViolation[]): string {
+  return problems.map((problem) => {
+    const level = problem.level === "block" ? "必须修" : "建议";
+    const where = problem.where ? `（${problem.where}）` : "";
+    return `- [${problem.ruleId} · ${level}]${where} ${problem.message}\n  改法：${problem.hint}`;
+  }).join("\n");
+}

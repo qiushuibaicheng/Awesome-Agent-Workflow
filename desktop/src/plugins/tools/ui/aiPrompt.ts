@@ -11,6 +11,7 @@
  *    里第一个 JSON 对象抠出来。AI 基本不会只吐纯 JSON，这一步是必需的。
  */
 import type { ToolPackage } from "../types.ts";
+import { ruleGuidance, ruleIds } from "../runtime/rules.ts";
 
 const example = {
   schemaVersion: 1,
@@ -36,6 +37,7 @@ const example = {
 };
 
 export function developerPrompt(): string {
+  const rules = ruleIds.map((id) => `- ${id}（${ruleGuidance[id].level === "block" ? "必须遵守" : "建议"}）${ruleGuidance[id].rule}：${ruleGuidance[id].fix}`).join("\n");
   return `请为我写一个 AAW 个人工具。只输出一个 JSON 对象（可以放在 \`\`\`json 代码块里），不要输出 Markdown 说明。
 
 ## 清单字段
@@ -47,12 +49,19 @@ export function developerPrompt(): string {
 - html：必填，完整自包含 HTML（内联 <style> 与 <script>）
 - actions：可选，最多 32 个，见下
 - settingsSchema：可选，最多 32 项，见下
+- permissions：可选，会联网就写 { "network": true }
 
 ## 运行环境（重要限制）
-- 工具运行在沙箱窗口里：没有 Node、没有文件系统、没有网络（fetch 会被 CSP 拒绝）、没有 Electron API、不能引用外部 script/css/font。
-- 图片只能用 data URL。
+- 工具运行在沙箱窗口里：没有 Node、没有任意路径的文件读写、没有 Electron API。
+- 不能引用外部 script/css/font 或图片外链——加载不到，用户会看到没样式的页面。图片只能用 data URL。
 - 整个工具包（含 html）不超过 512 KB。
-- 可以读取用户保存的设置：window.aawSettings 是只读对象，键就是 settingsSchema 里的 id。
+- 窗口宽度不固定（最小约 360px），布局用 max-width / 百分比，不要写死宽度。
+
+## 能用的四个 window 接口
+- window.aawSettings：只读对象，键就是 settingsSchema 里的 id。
+- window.aawActions：{ [动作id]: async (input) => 结果 }，界面按钮必须调用同一个函数。
+- window.aawStore：await aawStore.set(k, v) / get(k) / delete(k) / keys()，按工具+用户隔离、上限 5 MB、跨重启保留。要留存的数据一律走它；localStorage 在内存分区里，重启即清空。
+- window.aawFiles：await aawFiles.open({ accept }) 返回 { name, text } 或 null；await aawFiles.save(name, text) 弹系统保存框。
 
 ## actions（让 AI 也能调用）
 - 每项形如 { "id": "...", "description": "一句话说明", "inputSchema": { JSON Schema 对象 } }
@@ -64,10 +73,14 @@ export function developerPrompt(): string {
 - 每项形如 { "id": "...", "label": "...", "description": "可选", "type": "text|number|boolean|select", "default": ... }
 - select 类型额外带 options: [{ "label": "...", "value": "..." }]
 
+## 红线（校验会检查）
+${rules}
+
 ## 要求
 1. 界面用中文，单文件、无外部依赖，键盘可达。
 2. 主流程一眼可用，不要放说明书式的长文案。
 3. 至少暴露一个动作（这样我能在命令行和 AI 里复用）。
+4. 空输入、超长输入、非法输入都要有明确提示，不能白屏。
 
 ## 示例（可照此结构）
 \`\`\`json

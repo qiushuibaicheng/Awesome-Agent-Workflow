@@ -13,7 +13,8 @@ const makeTool = (id: string) => parseToolPackage(JSON.stringify({
 
 it("validates the portable package without evaluating its contents", () => {
   expect(makeTool("format-json").html).toBe("<button>Run</button>");
-  expect(() => makeTool("../outside")).toThrow("有效");
+  // 字段级错误：乱写 id 时要指明是 id 的问题，而不是一句笼统的"工具包无效"。
+  expect(() => makeTool("../outside")).toThrow(/id/);
   expect(() => parseToolPackage("broken")).toThrow("JSON");
 });
 
