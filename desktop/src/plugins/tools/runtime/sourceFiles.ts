@@ -1,5 +1,5 @@
 export function safeSourcePath(path: string): boolean {
-  return path.length > 0 && path.length <= 200 && !/[\\:]/.test(path) && ![...path].some((ch) => ch.charCodeAt(0) < 32)
+  return path.length > 0 && path.length <= 200 && !/[\\:<>"|?*]/.test(path) && ![...path].some((ch) => ch.charCodeAt(0) < 32)
     && path.split("/").every((part) => part && part !== "." && part !== ".."
       && !/[. ]$/.test(part) && !/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(part)
       && !["__proto__", "prototype", "constructor"].includes(part));

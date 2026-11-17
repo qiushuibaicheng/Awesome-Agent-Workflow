@@ -54,3 +54,15 @@ it("validates settings, drops obsolete keys and escapes script boundaries", () =
   expect(script.match(/<\/script>/g)).toHaveLength(1);
   expect(script).toContain("\\u003c/script>");
 });
+
+it("rejects Windows-invalid source filenames in JSON packages and ZIP projects", () => {
+  const files = unzipSync(exportToolProject(sampleTool));
+  for (const character of ['<', '>', '"', '|', '?', '*']) {
+    const path = `src/a${character}b.js`;
+    expect(() => parseToolPackage(JSON.stringify({ ...sampleTool, sourceFiles: { [path]: "// source" } }))).toThrow();
+    expect(() => importToolProject(zipSync({ ...files, [path]: strToU8("// source") }))).toThrow("路径");
+  }
+  const path = "src/我的工具 (v1)+测试.js";
+  const tool = parseToolPackage(JSON.stringify({ ...sampleTool, sourceFiles: { [path]: "// source" } }));
+  expect(importToolProject(exportToolProject(tool)).sourceFiles?.[path]).toBe("// source");
+});
