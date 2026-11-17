@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useStore } from "zustand";
 import { DangerButton, btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
@@ -7,11 +7,15 @@ import type { ContextMenuEntry } from "../../../shared/ui/ContextMenu.tsx";
 import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
 import { useHeaderMenu } from "../../../shared/ui/useHeaderMenu.ts";
 import type { HostService } from "../../host/service.ts";
+import type { ProjectService } from "../../project/service.ts";
 import { parseToolPackage } from "../runtime/package.ts";
 import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
-import { toolSettingsScript } from "../runtime/settings.ts";
 import { ToolDeveloper } from "./ToolDeveloper.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
+import { ToolPreview } from "./ToolPreview.tsx";
+import { migrateLegacyTools } from "../runtime/project.ts";
+import { ToolWishCard } from "./ToolWish.tsx";
+import { projectIO, useToolWish } from "./useToolWish.ts";
 import { toolGlyph, toneOf } from "./mark.ts";
 import type { ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
@@ -20,9 +24,8 @@ import "./tools.css";
 
 type View = { kind: "library" } | { kind: "manage"; id: string } | { kind: "preview"; tool: ToolPackage };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
-const framePolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'";
 
-export function ToolsPanel({ service, host }: { service: ToolsService; host: HostService }) {
+export function ToolsPanel({ service, host, project }: { service: ToolsService; host: HostService; project?: ProjectService }) {
   const tools = useStore(service.state);
   const [view, setView] = useState<View>({ kind: "library" });
   const [development, setDevelopment] = useState(false);
@@ -35,6 +38,25 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
   const picker = useRef<HTMLInputElement>(null);
   const active = view.kind === "preview" ? view.tool : undefined;
   const managed = view.kind === "manage" ? tools.find(({ package: tool }) => tool.id === view.id) : undefined;
+  const wish = useToolWish({
+    project, host,
+    onAccept: (tool) => service.install(tool, true),
+    onInstalled: () => setFeedback({ text: "已安装到工具中心。" }),
+  });
+
+  // 旧版本的工具体存在 configuration 里；首次打开时迁成项目目录（只写不删）。
+  const migrated = useRef(false);
+  useEffect(() => {
+    if (!project || !host.isNative() || migrated.current || tools.length === 0) return;
+    migrated.current = true;
+    void (async () => {
+      try {
+        const result = await migrateLegacyTools(projectIO(host), tools.map((entry) => entry.package));
+        if (result.created.length)
+          setFeedback({ text: `已把 ${result.created.length} 个旧工具迁成项目目录，可以在会话里继续开发。` });
+      } catch { /* 迁移失败不该影响使用，下次打开再试 */ }
+    })();
+  }, [host, project, tools]);
 
   function run(action: () => void) {
     setFeedback(undefined);
@@ -135,26 +157,16 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
     } catch (error) { setFeedback({ text: errorText(error), error: true }); } })(); }} />;
 
   if (active) {
-    return (
-      <section aria-label={active.name} className="aaw-tools flex h-full min-h-0 flex-col bg-base">
-        <header className="flex flex-wrap items-center gap-2 border-b border-line bg-surface/60 px-4 py-3">
-          <button type="button" className={btnGhost} onClick={() => setView({ kind: "library" })}>
-            返回开发模式
-          </button>
-          <h2 className="min-w-0 truncate text-ui-lg font-semibold text-ink">{active.name}</h2>
-          <span className="text-ui-sm text-ink-subtle">开发预览</span>
-        </header>
-        {feedback?.error && <p role="alert" className="border-b border-line px-4 py-2 text-ui-sm text-danger-ink">{feedback.text}</p>}
-        <iframe
-          key={active.id}
-          aria-label={active.name}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          srcDoc={`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${framePolicy}">${toolSettingsScript(active)}${active.html}`}
-          className="min-h-0 w-full flex-1 border-0"
-        />
-      </section>
-    );
+    return <ToolPreview
+      tool={active}
+      onBack={() => setView({ kind: "library" })}
+      onInstall={() => run(() => {
+        service.install(active, true);
+        setFeedback({ text: "工具已安装或更新。" });
+        setView({ kind: "library" });
+      })}
+      installLabel="安装到工具中心"
+    />;
   }
 
   return (
@@ -177,6 +189,17 @@ export function ToolsPanel({ service, host }: { service: ToolsService; host: Hos
           <p role={feedback.error ? "alert" : "status"} className={`whitespace-pre-wrap break-words rounded-lg border border-line bg-surface px-3 py-2 text-ui-sm ${feedback.error ? "text-danger-ink" : "text-ink-subtle"}`}>
             {feedback.text}
           </p>
+        )}
+        {project && (
+          <ToolWishCard
+            state={wish}
+            available={host.isNative()}
+            onPreview={() => {
+              const tool = wish.check?.tool;
+              if (tool) setView({ kind: "preview", tool });
+            }}
+            onInstall={() => void wish.install()}
+          />
         )}
         {development && <ToolDeveloper source={draft} onChange={setDraft} onExample={() => edit(sampleTool)}
           onPreview={() => run(() => setView({ kind: "preview", tool: parseToolPackage(draft) }))}

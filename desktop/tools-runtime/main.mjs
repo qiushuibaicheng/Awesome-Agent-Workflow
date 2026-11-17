@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Tray, screen } from "electron";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { defaultRoot, readAppearance } from "./catalog.mjs";
 import { createLauncherCatalog, createLauncherStore, createShortcutController } from "./launcher-registry.mjs";
 import { createDesktopBridge } from "./desktop-bridge.mjs";
-import { prepareRuntime, loadTool } from "./runtime.mjs";
+import { prepareRuntime, loadTool, readToolWindow } from "./runtime.mjs";
+import { createToolStorage } from "./tool-storage.mjs";
 import { runCli } from "./cli.mjs";
 
 const args = process.argv.slice(1);
@@ -39,7 +40,65 @@ function watchDesktop(pid) {
   parentTimer.unref();
 }
 
+const fileReadLimit = 4 * 1024 * 1024;
+const fileWriteLimit = 8 * 1024 * 1024;
+
+/**
+ * 工具窗口的 IPC 面：存储与文件。
+ *
+ * 两个都只在"调用方确实是工具窗口"时放行——`readToolWindow` 依赖 loadTool 时
+ * 登记的 webContents.id，别的地方伪造不出来。这是"能力可见"的前提：能力只对
+ * 工具开放，不对随便是谁开放。
+ */
+function installToolIpc(root) {
+  const storage = createToolStorage(root);
+  const context = (event) => {
+    const found = readToolWindow(event.sender);
+    if (!found) throw new Error("调用来源不是工具窗口。");
+    return found;
+  };
+  const parentOf = (event) => BrowserWindow.fromWebContents(event.sender) ?? undefined;
+
+  ipcMain.handle("tool:store:get", (event, key) => storage.get(context(event).toolId, key));
+  ipcMain.handle("tool:store:set", (event, key, value) => storage.set(context(event).toolId, key, value));
+  ipcMain.handle("tool:store:delete", (event, key) => storage.delete(context(event).toolId, key));
+  ipcMain.handle("tool:store:keys", (event) => storage.keys(context(event).toolId));
+
+  ipcMain.handle("tool:files:open", async (event, options) => {
+    context(event);
+    const accept = Array.isArray(options?.accept) ? options.accept : [];
+    const extensions = accept
+      .filter((item) => typeof item === "string" && /^\.[\w.-]{1,12}$/.test(item))
+      .slice(0, 8)
+      .map((item) => item.slice(1));
+    const dialogOptions = {
+      properties: ["openFile"],
+      ...(extensions.length ? { filters: [{ name: "文件", extensions }] } : {}),
+    };
+    const win = parentOf(event);
+    const result = win ? await dialog.showOpenDialog(win, dialogOptions) : await dialog.showOpenDialog(dialogOptions);
+    const path = result.filePaths?.[0];
+    if (result.canceled || !path) return null;
+    if (statSync(path).size > fileReadLimit) throw new Error("文件超过 4 MB：工具只能读取文本文件。");
+    return { name: basename(path), text: readFileSync(path, "utf8") };
+  });
+
+  ipcMain.handle("tool:files:save", async (event, name, text) => {
+    context(event);
+    if (typeof name !== "string" || !name.trim() || name.length > 200) throw new Error("文件名无效。");
+    if (typeof text !== "string") throw new Error("要保存的内容必须是文本。");
+    if (Buffer.byteLength(text) > fileWriteLimit) throw new Error("内容超过 8 MB，无法保存。");
+    const win = parentOf(event);
+    const dialogOptions = { defaultPath: name };
+    const result = win ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
+    if (result.canceled || !result.filePath) return false;
+    writeFileSync(result.filePath, text, "utf8");
+    return true;
+  });
+}
+
 function installLauncher(root, isolated) {
+  installToolIpc(root);
   const store = createLauncherStore(root);
   // 窗口底色跟着主窗主题走：深色默认值，warm（浅色）用原浅底，避免出现瞬间闪白。
   const launcherBackground = () => readAppearance(root).theme === "warm" ? "#f7f8fa" : "#16181f";
@@ -171,6 +230,8 @@ else if (cliMarker >= 0) {
 
 if (cliMarker >= 0) {
   app.whenReady().then(async () => {
+    // CLI 跑动作时也要能用 aawStore，否则"界面能存、命令行不能存"会变成隐蔽的坑。
+    installToolIpc(defaultRoot());
     const result = await runCli(defaultRoot(), prepareRuntime(), args.slice(cliMarker + 1));
     writeResult({ ok: true, result }, 0);
   }).catch((error) => writeResult({ ok: false, error: error.message }, 1));

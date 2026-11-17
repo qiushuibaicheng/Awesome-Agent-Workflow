@@ -25,9 +25,11 @@ export function readToolIcon(value: unknown): string | undefined {
  * id、name…"，用户和 AI 都只能逐字段猜。现在每条问题自带 `hint`，AI 能照着改。
  */
 export class ToolPackageError extends Error {
-  constructor(readonly violations: readonly ToolViolation[]) {
+  readonly violations: readonly ToolViolation[];
+  constructor(violations: readonly ToolViolation[]) {
     super(violations[0]?.message ?? "工具包无效。");
     this.name = "ToolPackageError";
+    this.violations = violations;
   }
 }
 
@@ -180,7 +182,7 @@ export function validateToolPackage(value: unknown): ToolValidation {
       const seen = new Set<string>();
       actions.forEach((item, index) => problems.push(...checkAction(item, index, seen)));
       if (!problems.some((problem) => problem.where?.startsWith("actions[")))
-        checkedActions = actions as unknown as ToolAction[];
+        checkedActions = actions;
     }
   }
 

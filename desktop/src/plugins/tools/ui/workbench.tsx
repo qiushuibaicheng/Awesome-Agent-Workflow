@@ -7,7 +7,7 @@ export const name = "tools-ui";
 export const inject = ["tools", "workbench", "host", "project"];
 
 export function apply(ctx: Context): void {
-  const { workbench, tools, host } = ctx;
+  const { workbench, tools, host, project } = ctx;
   ctx.effect(() => workbench.register("panels", {
     id: "tools",
     launcher: {
@@ -18,6 +18,6 @@ export function apply(ctx: Context): void {
       order: 30,
       prepareGlobalOpen: () => prepareProjectLauncher(ctx.project, workbench, host, false),
     },
-    View: () => <ToolsPanel service={tools} host={host} />,
+    View: () => <ToolsPanel service={tools} host={host} project={project} />,
   }), "tools:panel");
 }
