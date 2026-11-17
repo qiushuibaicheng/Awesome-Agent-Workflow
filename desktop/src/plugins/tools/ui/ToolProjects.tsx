@@ -44,8 +44,13 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
     else setRenaming(undefined);
   }
 
-  return <ul aria-label="工具项目" className="build-projects">
-    {projects.map((project) => {
+  return <>
+    <div className="build-projects-head">
+      <span>{projects.length} 个项目</span>
+      <button type="button" className="build-path" data-hint="在文件管理器中打开" onClick={() => void workshop.openProjectsRoot()}>打开项目根目录</button>
+    </div>
+    <ul aria-label="工具项目" className="build-projects">
+      {projects.map((project) => {
       const name = project.name ?? project.dirName;
       const selectable = !project.broken && project.hasHtml;
       const entry = installed.find((item) => item.package.id === project.id);
@@ -105,5 +110,6 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
         </div>}
       </li>;
     })}
-  </ul>;
+    </ul>
+  </>;
 }

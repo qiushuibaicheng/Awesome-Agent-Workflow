@@ -57,34 +57,37 @@ export async function listToolProjectSummaries(
   options: { readonly parent?: string; readonly owner?: string } = {},
 ): Promise<readonly ToolProjectSummary[]> {
   const dirs = await listToolProjects(io, options);
-  const summaries: ToolProjectSummary[] = [];
-  for (const dir of dirs) {
-    const dirName = pathName(dir);
-    const hasHtml = await io.pathExists(joinPath(dir, toolProjectFileNames.html));
-    let manifest: Record<string, unknown> | undefined;
-    let broken: string | undefined;
-    try {
-      const text = await io.readTextFile(joinPath(dir, toolProjectFileNames.manifest));
-      const parsed = JSON.parse(text) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) manifest = parsed as Record<string, unknown>;
-      else broken = "manifest.json 不是对象";
-    } catch (error) {
-      broken = error instanceof Error ? error.message : String(error);
-    }
-    const text = (value: unknown) => typeof value === "string" && value.trim() ? value : undefined;
+  const text = (value: unknown) => typeof value === "string" && value.trim() ? value : undefined;
+  // 并发读：每个项目要读一次清单、探一次 index.html，串行时项目一多就能感觉到
+  // 面板"卡一下才出来"。这些目录之间互不依赖，直接并行。
+  return Promise.all(dirs.map(async (dir) => {
+    const [hasHtml, manifestResult] = await Promise.all([
+      io.pathExists(joinPath(dir, toolProjectFileNames.html)),
+      (async () => {
+        try {
+          const raw = await io.readTextFile(joinPath(dir, toolProjectFileNames.manifest));
+          const parsed = JSON.parse(raw) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+            return { manifest: parsed as Record<string, unknown> };
+          return { broken: "manifest.json 不是对象" };
+        } catch (error) {
+          return { broken: error instanceof Error ? error.message : String(error) };
+        }
+      })(),
+    ]);
+    const manifest = "manifest" in manifestResult ? manifestResult.manifest : undefined;
     const permissions = manifest?.permissions as { network?: unknown } | undefined;
-    summaries.push({
+    return {
       dir,
-      dirName,
+      dirName: pathName(dir),
       id: text(manifest?.id),
       name: text(manifest?.name),
       version: text(manifest?.version),
       hasHtml,
       network: permissions?.network === true,
-      broken,
-    });
-  }
-  return summaries;
+      broken: "broken" in manifestResult ? manifestResult.broken : undefined,
+    };
+  }));
 }
 
 export const toolProjectFileNames = {

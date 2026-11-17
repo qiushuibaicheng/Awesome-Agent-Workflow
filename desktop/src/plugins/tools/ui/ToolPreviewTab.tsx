@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { btnSecondary } from "../../../shared/ui/controls.tsx";
 import { pathKey } from "../../../shared/panelPaths.ts";
 import type { HostService } from "../../host/service.ts";
@@ -35,6 +35,9 @@ export function ToolPreviewTab({ dir, host, project, tools, revision = 0 }: {
 }) {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [reloads, setReloads] = useState(0);
+  /** 只在"内容真的变了"时才 +1，见下面 effect 里的比较。 */
+  const [contentRevision, setContentRevision] = useState(0);
+  const lastContent = useRef("");
   const installed = useSyncExternalStore(
     tools?.state.subscribe ?? (() => () => {}),
     tools?.state.getState ?? (() => [] as const),
@@ -48,6 +51,15 @@ export function ToolPreviewTab({ dir, host, project, tools, revision = 0 }: {
       try {
         const check = await checkToolProject(hostToolIO(host), dir);
         if (cancelled) return;
+        if (check.tool) {
+          // AI 每次停下都会重读，但"重读"不等于"内容变了"。无脑换 iframe 会
+          // 把用户在预览里正在输入的内容清掉；这里按版本 + 正文比对，没变就不动。
+          const next = `${check.tool.version}\u0000${check.tool.html}`;
+          if (next !== lastContent.current) {
+            lastContent.current = next;
+            setContentRevision((value) => value + 1);
+          }
+        }
         setState(check.tool
           ? { kind: "ready", tool: check.tool, warnings: check.warnings }
           : { kind: "broken", message: "这个项目现在读不出可预览的工具。", blocking: check.blocking });
@@ -112,7 +124,7 @@ export function ToolPreviewTab({ dir, host, project, tools, revision = 0 }: {
       <ToolPreview
         embedded
         tool={state.tool}
-        revision={reloads}
+        revision={contentRevision}
         onReload={reread}
       />
     </div>

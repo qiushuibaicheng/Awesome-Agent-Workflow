@@ -35,7 +35,37 @@ function ruleTable(): string {
 export function toolGuide(context: ToolGuideContext): string {
   return `# ${context.name} · AAW 工具项目
 
-你在一个 AAW 个人工具项目里工作。工具 id 是 \`${context.id}\`，目录就是当前工作区。
+${guideBody(context)}
+`;
+}
+
+/**
+ * 人读版：工具中心里那份「开发指导」窗口的正文。
+ *
+ * 与 `toolGuide()` 共用 `guideBody()`，所以窗口里看到的内容和写进项目
+ * `AGENTS.md`、AI 技能目录的文字永远一致——两处各写一份，迟早会互相矛盾。
+ */
+export function toolGuideMarkdown(): string {
+  return `# 工具开发指导
+
+这份文档既是给人看的手册，也是平台写进工具项目 \`AGENTS.md\` 和 AI 技能目录的同一份规范。你看到的和 AI 读到的是同一段文字。
+
+## 从这里开始
+
+- **做一个新工具**：工具中心 →「制作工具」→ 写一句需求 → 开始做。
+- **改一个已有的**：同一个标签页里点项目的「继续开发」。
+- **做完了**：面板会自动校验，通过后点「确认安装」。
+- **不想让 AI 做**：项目目录里的 \`manifest.json\` 与 \`index.html\` 就是全部源码，直接改，改完点「我改完了，重新校验」。
+
+## 在项目里工作时
+
+${guideBody({ id: "<工具 id>", name: "<工具名>" })}
+`;
+}
+
+/** 两个入口共用的正文：项目落点、清单结构、运行时能力、红线、交付流程。 */
+function guideBody(context: ToolGuideContext): string {
+  return `你在一个 AAW 个人工具项目里工作。工具 id 是 \`${context.id}\`，目录就是当前工作区。
 用户只负责提需求和验收；技术决策按下面这份契约来，不要反过来问用户。
 
 ## 一个工具是什么

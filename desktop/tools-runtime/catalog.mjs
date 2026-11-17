@@ -25,23 +25,28 @@ export function defaultRoot() {
  * 弹出一整块白板。这里只读，不做任何写入。
  * `warm` 是主窗对浅色主题的叫法（`theme-warm` 根类）。
  */
-export function readAppearance(root) {
-  const storage = readRecord(join(root, "storage-location.json")).active || root;
-  const settings = readRecord(join(storage, "configuration", "preferences.json"));
+function appearanceOf(settings) {
   let value;
   try { value = JSON.parse(settings["aaw-desktop.settings.v1"] || "null"); }
   catch { /* 偏好文件里存了坏数据就按默认深色处理 */ }
   return { theme: value?.theme === "warm" ? "warm" : "dark" };
 }
 
+export function readAppearance(root) {
+  const storage = readRecord(join(root, "storage-location.json")).active || root;
+  return appearanceOf(readRecord(join(storage, "configuration", "preferences.json")));
+}
+
 export function getCatalog(root) {
   const storage = readRecord(join(root, "storage-location.json")).active || root;
   const configuration = join(storage, "configuration");
   const settings = readRecord(join(configuration, "preferences.json"));
+  // 主题顺带带走：小窗唤起时不用为它再读一遍同一个文件（里面有每个工具的完整 HTML）。
+  const { theme } = appearanceOf(settings);
   const auth = JSON.parse(settings["aaw-desktop.auth.v1"] || "null");
   const library = JSON.parse(settings["aaw-desktop.personal-tools.v1"] || "{}");
   const owner = typeof auth?.user?.id === "string" ? `user:${auth.user.id}` : null;
-  if (!owner) return { signedIn: false, tools: [] };
+  if (!owner) return { signedIn: false, theme, tools: [] };
   const recentPath = join(configuration, "tools-recent.json");
   const recent = readRecord(recentPath);
   const items = Object.hasOwn(library, owner) ? library[owner] : [];
@@ -63,7 +68,7 @@ export function getCatalog(root) {
     }];
   });
   tools.sort((a, b) => b.lastOpened - a.lastOpened || a.tool.name.localeCompare(b.tool.name, "zh-CN"));
-  return { signedIn: true, owner, tools };
+  return { signedIn: true, owner, theme, tools };
 }
 
 export function describeTool(tool) {

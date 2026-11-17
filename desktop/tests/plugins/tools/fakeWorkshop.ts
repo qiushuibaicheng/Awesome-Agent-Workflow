@@ -20,6 +20,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     running: false,
     projects: [],
     projectsLoading: false,
+    projectsRoot: null,
     guideNote: null,
     ...overrides,
   }));
@@ -35,6 +36,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     rollback: () => Promise.resolve({ text: "没有可回退的版本。" }),
     rename: () => Promise.resolve({ text: "已改名。" }),
     openDir: idle,
+    openProjectsRoot: idle,
     resume: idle,
     select: idle,
     refreshProjects: idle,

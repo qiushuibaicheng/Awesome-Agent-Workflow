@@ -28,8 +28,8 @@ export function NewToolForm({ workshop, available }: {
   available: boolean;
 }) {
   const state = workshop.state;
-  const { brief, parent, busy, note, project } = useStore(state);
-  const target = parent ?? "默认位置（AAW 数据目录 / tools / projects）";
+  const { brief, parent, busy, note, project, projectsRoot } = useStore(state);
+  const target = parent ?? projectsRoot;
   return <section aria-label="新建工具" className="build-new">
     <form onSubmit={(event) => { event.preventDefault(); void workshop.create(); }}>
       <label className="build-new-label" htmlFor="tool-brief">新建工具</label>
@@ -44,7 +44,19 @@ export function NewToolForm({ workshop, available }: {
         disabled={!available || busy}
       />
       <div className="build-new-row">
-        <span className="build-target">目录 <code>{target}</code></span>
+        {/* 目录要能点开：之前只写着"默认位置（AAW 数据目录 / tools / projects）"，
+            而用户没有别的入口打开它——AI 写坏一个文件时连去哪看都不知道。 */}
+        <span className="build-target">目录
+          {target
+            ? <button
+              type="button"
+              className="build-path"
+              data-hint="在文件管理器中打开"
+              aria-label={`打开目录：${target}`}
+              onClick={() => void (parent ? workshop.openDir(parent) : workshop.openProjectsRoot())}
+            >{target}</button>
+            : <code>默认位置</code>}
+        </span>
         <button type="button" className={btnGhost} onClick={() => void workshop.chooseParent()} disabled={!available || busy}>选择目录</button>
         {parent && <button type="button" className={btnGhost} onClick={() => workshop.resetParent()} disabled={busy}>用默认</button>}
         <button type="submit" className={btnPrimary} disabled={!available || busy || !brief.trim()}>

@@ -6,9 +6,9 @@ import type { PersonalTool, ToolSettings } from "../types.ts";
 import { resolveToolSettings } from "../runtime/settings.ts";
 import { toolGlyph, toneOf } from "./mark.ts";
 
-export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onEdit, onSave, onRemove, onRollback, busy, feedback }: {
+export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onSave, onRemove, onRollback, busy, feedback }: {
   entry: PersonalTool; onBack: () => void; onOpen: () => void; onExport: () => void; onUpdate: (file: File) => void;
-  onEdit: () => void; onSave: (values: ToolSettings) => boolean; onRemove: () => void; onRollback?: () => void; busy: boolean;
+  onSave: (values: ToolSettings) => boolean; onRemove: () => void; onRollback?: () => void; busy: boolean;
   feedback?: { text: string; error?: true };
 }) {
   const tool = entry.package;
@@ -50,8 +50,8 @@ export function ToolManagement({ entry, onBack, onOpen, onExport, onUpdate, onEd
       </section>
       <section className="management-card" aria-labelledby="source-title"><div className="management-section-title"><div><h3 id="source-title">源码与开发</h3><p>导出完整源码，交给你或 AI 继续开发</p></div><span className="management-badge">ZIP</span></div>
         <div className="management-files"><code>manifest.json</code><code>index.html</code><code>AGENTS.md</code><code>README.md</code><span>+ 附加源码</span></div>
-        <div className="management-actions"><button type="button" className={btnSecondary} onClick={onExport} disabled={busy}>导出源码 ZIP</button><button type="button" className={btnGhost} onClick={() => picker.current?.click()} disabled={busy}>更新源码</button><button type="button" className={btnGhost} onClick={() => requestAction("编辑工具包", onEdit)}>编辑工具包</button>{entry.previousVersion && onRollback && <button type="button" className={btnGhost} onClick={onRollback} disabled={busy}>退回上一版 v{entry.previousVersion}</button>}</div>
-        <p className="management-note">导出的是可直接导入的源码包：不需要 Node、不需要构建，改完拖回工具中心即可。不包含你的个人设置。</p>
+        <div className="management-actions"><button type="button" className={btnSecondary} onClick={onExport} disabled={busy}>导出源码 ZIP</button><button type="button" className={btnGhost} onClick={() => picker.current?.click()} disabled={busy}>更新源码</button>{entry.previousVersion && onRollback && <button type="button" className={btnGhost} onClick={onRollback} disabled={busy}>退回上一版 v{entry.previousVersion}</button>}</div>
+        <p className="management-note">导出的是可直接导入的源码包：不需要 Node、不需要构建；要装回去时在工具中心点「导入工具」选中这个 ZIP。不包含你的个人设置。</p>
         {entry.dir && <p className="management-note">这一版是从 <code>{entry.dir}</code> 装进来的。在那里改完内容要回工具中心点一次「安装」才会生效——已安装的是一份快照，不会跟着目录自动变。</p>}
         <input ref={picker} type="file" accept=".zip,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) requestAction("更新源码", () => onUpdate(file)); }} />
       </section>

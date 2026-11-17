@@ -117,7 +117,7 @@ export function apply(ctx: Context): void {
       let outcome: InstallOutcome = { version: tool.version, updated: false, versionChanged: false };
       update((current) => {
         const previous = current.find((entry) => entry.package.id === tool.id);
-        if (previous && !replace) throw new Error("已安装相同 ID 的工具。请在开发模式中更新，或先卸载旧版本。");
+        if (previous && !replace) throw new Error("已安装相同 ID 的工具。请在「制作工具」里重新安装，或先卸载旧版本。");
         // 覆盖前把上一版挪到磁盘：装坏了能一步退回，不用再找 AI 重写。
         if (previous) backups.enqueue(previous.package);
         const dir = sourceDir ?? previous?.dir;

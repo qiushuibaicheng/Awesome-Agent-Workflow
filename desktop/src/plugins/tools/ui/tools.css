@@ -24,6 +24,42 @@
 .aaw-tools .tool-card { align-content: start; padding: 16px; min-width: 0; border-radius: 12px; background: linear-gradient(140deg, var(--color-surface), color-mix(in srgb, var(--color-surface) 55%, var(--color-base))); }
 .aaw-tools .tool-card h3 { font-size: 13px; line-height: 1.5; }
 /*
+ * 已安装列表：一行一个，而不是大卡片。
+ *
+ * 右栏只有 360px 上下，卡片式（图标 + 两行 + 按钮行）一屏只能放三个；而这一页
+ * 最高频的动作就是"打开某个工具"。压到一行后同样的高度能看到七八个，扫视成本
+ * 最低，详细信息仍然通过「⋯ → 管理」可达。
+ */
+.aaw-tools .tool-rows { display: flex; flex-direction: column; gap: 6px; }
+.aaw-tools .tool-row {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 7px 9px 7px 8px; border: 1px solid var(--color-line); border-radius: 10px;
+  background: var(--color-surface); transition: border-color .12s ease, background .12s ease;
+}
+.aaw-tools .tool-row:hover { border-color: color-mix(in srgb, var(--color-info) 38%, var(--color-line)); }
+.aaw-tools .tool-row.is-expanded { flex-wrap: wrap; }
+.aaw-tools .tool-symbol.is-row { width: 28px; height: 28px; border-radius: 8px; font-size: 13px; }
+.aaw-tools .tool-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.aaw-tools .tool-row-name { font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aaw-tools .tool-row-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; line-height: 1.4; color: var(--color-ink-subtle); overflow: hidden; }
+.aaw-tools .tool-row-tag { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.aaw-tools .tool-row-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.aaw-tools .tool-row-open {
+  min-height: 26px; padding: 3px 11px; border-radius: 7px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--color-info) 42%, var(--color-line));
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info); font-size: 12px; font-weight: 600; line-height: 1.4;
+}
+.aaw-tools .tool-row-open:hover { background: color-mix(in srgb, var(--color-info) 20%, transparent); }
+.aaw-tools .tool-row-open:disabled { cursor: wait; opacity: .6; }
+.aaw-tools .tool-row-more {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px;
+  color: var(--color-ink-subtle); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.aaw-tools .tool-row-more:hover { background: var(--color-hover, color-mix(in srgb, var(--color-ink) 8%, transparent)); color: var(--color-ink); }
+.aaw-tools .tool-remove.is-row { flex: 1 1 100%; padding: 8px 0 0; gap: 6px; }
+.aaw-tools .tool-remove.is-row .tool-remove-actions { justify-content: flex-end; }
+/*
  * 色板顺序与启动器小窗一致：0 靛蓝 / 1 紫 / 2 琥珀 / 3 青蓝。
  * 索引由 `toneOf(id)` 决定（见 ui/mark.ts），不再按列表下标——按下标取色
  * 一旦增删工具就整体错位，而且同一个工具在两个窗口里会显示成两种颜色。
@@ -206,6 +242,9 @@
 
 /* ── 工具项目列表 ─────────────────────────────────────────────────────── */
 .aaw-tools .build-projects { display: grid; gap: 8px; }
+.aaw-tools .build-projects-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 2px; font-size: 11px; color: var(--color-ink-subtle); }
+.aaw-tools .build-projects-head .build-path { display: inline-flex; margin-top: 0; flex: none; }
+.aaw-tools .tools-guide { margin-left: auto; }
 .aaw-tools .build-project { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-surface); }
 .aaw-tools .build-project-main { min-width: 0; flex: 1 1 220px; }
 .aaw-tools .build-project-main strong { font-size: 13px; font-weight: 600; color: var(--color-ink); }

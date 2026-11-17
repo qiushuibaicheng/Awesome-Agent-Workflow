@@ -17,7 +17,8 @@ function isArchiveNoise(path: string): boolean {
  *
  * 早先这里生成 `package.json` + `scripts/build.mjs`，要求接收方装 Node 再
  * `npm run build`——同事拿到 ZIP 第一步就卡住，而产物其实只是把两个文件
- * 打个包。现在直接写清：改完把整个目录（或本 ZIP）拖回工具中心即可。
+ * 打个包。现在直接写清：改完在工具中心点「导入工具」选中这个 ZIP 即可。
+ * 不提「拖回」：拖拽导入从来没被支持过，写了只会让人照做然后发现没反应。
  */
 export function toolProjectFiles(tool: ToolPackage): Record<string, string> {
   const { html, sourceFiles, ...manifest } = tool;
@@ -37,7 +38,8 @@ ${author}${source}
 
 ## 改完怎么装回去
 
-把这个 ZIP（或整个目录）拖进 AAW 的「工具中心」，或在工具中心点「导入工具」选它。
+在 AAW 桌面版的「工具中心」点「导入工具」，选中这个 ZIP 即可。
+目前只支持导入压缩包这一种方式。
 ID 相同的会覆盖更新；界面会在安装后告诉你版本从哪一版变到了哪一版。
 
 ## 注意

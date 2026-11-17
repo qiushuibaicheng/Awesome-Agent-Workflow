@@ -18,6 +18,10 @@ const entries: PersonalTool[] = [
     { id: "copy", label: "处理后自动复制", type: "boolean", default: false },
   ] } },
   { package: { ...sampleTool, id: "legacy-tool", name: "未声明设置的工具", settingsSchema: [] } },
+  // 再多几个：紧凑列表的价值就在于"一屏能看七八个"，只有三个工具看不出密度。
+  ...["Markdown 导出", "CSV 拆分", "时间戳转换", "正则测试", "颜色取值", "URL 解析"].map((name, at) => ({
+    package: { ...sampleTool, id: `extra-tool-${at + 1}`, name, settingsSchema: [] },
+  })),
 ];
 const state = createStore<readonly PersonalTool[]>(() => entries);
 const service: ToolsService = {
@@ -28,7 +32,11 @@ const service: ToolsService = {
   open: () => {}, remove: () => {},
   saveSettings: (id, values) => state.setState(state.getState().map((entry) => entry.package.id === id ? { ...entry, settings: resolveToolSettings(entry.package, values) } : entry), true),
 };
-const host = { isNative: () => !new URLSearchParams(location.search).has("web"), openToolsElectron: async () => {} } as unknown as HostService;
+const host = {
+  isNative: () => !new URLSearchParams(location.search).has("web"),
+  openToolsElectron: async () => {},
+  openToolsGuide: async () => {},
+} as unknown as HostService;
 // `?stalled` 摆出"AI 修不动了"的交接态：360px 下两个按钮加一段说明会不会挤，
 // 只能看真实渲染。
 const params = new URLSearchParams(location.search);

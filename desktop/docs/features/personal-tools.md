@@ -2,11 +2,13 @@
 
 ## 在 AAW 中运行
 
-登录 AAW Desktop 并进入项目，从右侧「新标签页」打开「工具」。选择「开发模式」，载入「JSON 格式化」示例。点击「运行预览」执行工具，返回编辑器后可安装或更新。关闭开发模式后，仍可从已安装列表打开工具。
+登录 AAW Desktop 并进入项目，从右侧「新标签页」打开「工具」。面板只有两个区：**已安装** 和 **制作工具**（原来的「工具项目」与「开发模式」合并了——既然一句话就能让 AI 做工具，再留一个手写 JSON 的编辑器没有意义）。顶部有 **开发指导 ↗**：点击后弹出独立的 Electron 窗口，里面是分节的《工具开发指导》，人可以按左侧目录跳读，AI 也能直接读同一份正文——它与写进项目 `AGENTS.md` / 技能目录的规范在构建期从同一份源码渲染，不会互相矛盾。
 
-可以一次导入多个源码 `.zip` 或 `.aaw-tool.json` 文件。每张卡片提供打开、管理、导出、卸载。**打开**直接启动 Electron 独立窗口；**管理**进入插件设置与源码管理页。卸载保留确认步骤。
+「制作工具」里写一句话描述即可新建项目，目录默认在 `<AAW 数据目录>/tools/projects`，也可以点目录名直接在文件管理器里打开，或换成别的目录。AI 写完自动校验、最多回灌 3 轮；修不动时给出「打开项目目录」和「我改完了，重新校验」两条能走通的路。
 
-导出得到 `<id>-<version>-source.zip` 源码项目，包含 `manifest.json`、`index.html`、`package.json`、`scripts/build.mjs`、开发说明及作者附加源码。解压后使用 Node.js 执行 `npm run build`，无需安装依赖，即可生成 `dist/*.aaw-tool.json`；也可直接将项目目录压缩为 ZIP 导入。导入遇到同 ID 会提示冲突，更新时在该插件的「管理 → 更新源码」选择同 ID 文件，或通过开发模式编辑并保存。
+「已安装」是一行一个工具的紧凑列表：名字、版本、动作数、联网标记，右侧直接 **打开** 和 **⋯** 菜单（管理、导出源码、更新源码、退回上一版、卸载）。右栏只有 360px 左右，卡片式一屏只能放三个，所以一屏至少能看七八个。卸载保留确认步骤。可以一次导入多个源码 `.zip` 或 `.aaw-tool.json`。
+
+导出得到 `<id>-<version>-source.zip`，里面是 `manifest.json`、`index.html`、`README.md` 和作者附加源码，**不含** `package.json` 或构建脚本，不需要 Node、不需要构建。装回去时在工具中心点「导入工具」选中这个 ZIP 即可；目前只支持导入压缩包这一种方式。导入遇到同 ID 会提示冲突，更新时在该工具的「管理 → 更新源码」选择同 ID 文件，或直接再导入一次覆盖。
 
 ZIP 压缩前后均限制 1 MB，最多 72 个条目；转换后的工具包总大小仍限制 512 KB。项目必须有唯一的 `manifest.json` 和同目录的 `index.html`，可以有一层外部目录。附加源码只支持 UTF-8 文本，最多 64 个文件；拒绝路径穿越、重复路径和 Windows 设备路径。请勿打包 `node_modules`、`.git`、`dist` 或凭据。宿主不会执行导入包中的安装和构建脚本。
 
@@ -79,7 +81,7 @@ AI 写完会自动校验并把问题回灌给它自己修，最多 3 轮。轮�
 }
 ```
 
-将示例粘贴到「工具包源码」，运行预览，输入 `Hello AAW` 并点击「转换」，结果应为 `HELLO AAW`。安装后再从工具列表打开一次，导出并检查文件中的 ID、版本及源码。
+把示例存成 `uppercase.aaw-tool.json`，在工具中心点「导入工具」装入，再从已安装列表打开一次，输入 `Hello AAW` 并点击「转换」，结果应为 `HELLO AAW`。导出并检查 ZIP 里的 ID、版本与 `index.html`。
 
 ## AI CLI
 
@@ -93,12 +95,16 @@ npm --silent run tools -- describe uppercase
 
 成功结果为 `{"ok":true,"result":"HELLO AAW"}`，失败返回 `{"ok":false,"error":"..."}`，退出码为 1。输入与输出上限为 512 KB，动作执行上限为 8 秒。也可以向 `run` 传 `--input-file=<文件路径>`。Windows 安装版使用安装目录下的 `tools-runtime\aaw-tools.cmd`，按相同参数格式传入文件路径。
 
-旧工具依旧可以从界面打开。若要让旧版「JSON 格式化」可被 CLI 调用，在开发模式重新载入示例并更新，然后运行 `describe json-formatter` 查看 `format` 动作。
+旧工具依旧可以从界面打开。若要让旧版「JSON 格式化」可被 CLI 调用，用「导入工具」装入更新后的源码 ZIP，然后运行 `describe json-formatter` 查看 `format` 动作。
 
 ## 桌面宿主开发
 
 在 `desktop` 目录执行 `npm run tauri dev` 构建 Electron 工具宿主并启动原生开发版。已有调试构建时，先运行 `npm run tools:build`，再启动 Vite（`npm run dev`）和 `src-tauri/target/debug/desktop.exe`。上一次没退干净导致 `desktop.exe`/1420 被占、`tauri dev` 起不来时，先跑 `npm run dev:doctor`（见[开发运行与 ACP 宿主](../engineering/development.md)）。单独调试小窗可用 `npm run tools:launcher`。改动 Electron 源码后重新构建并重启宿主，Windows 实机 CLI 冒烟测试使用 `npm run tools:test`。
 
 启动器回归检查：构建后运行 `node --test scripts/test-launcher.mjs`；Windows Electron 界面验证运行 `node scripts/test-launcher-ui.mjs`。后者使用临时账号数据与独立 profile，覆盖搜索、固定、长列表、小尺寸布局和快捷键冲突。改动快捷键捕获或全局热键让位逻辑后，再跑一次 `npm run tools:verify-shortcut`：它用 Playwright 驱动真实宿主，把快捷键从 `Ctrl+K` 改回 `Alt+Space`，同时断言窗口没有被自己的热键关掉。
+
+开发指导窗口的内容源是 `src/plugins/tools/runtime/guide.ts`，`scripts/build-tools-runtime.mjs` 在构建期用 `scripts/guide-render.mjs` 把它渲染成静态 `guide.html`，放进 `tools-runtime/dist/resources/app/`；`tools-runtime/guide.css` / `guide.js` 负责版式、目录高亮和主题跟随。改正文只需改 `guide.ts` 后跑 `npm run tools:build`。窗口由 Rust 命令 `tools_open_guide` 拉起同一个工具宿主进程并带 `--aaw-guide`，不新增第二个 Electron 实例。
+
+启动器性能：`tools-runtime/launcher-registry.mjs` 给目录加 1 秒 TTL 快照，`preferences.json` 里存着每个工具的完整 HTML，原来一次 `read()` 会把它读两遍、解析两遍；主题也随这次读取一起返回，页面不再为它单发一次 IPC。右栏预览的 iframe 只在版本号或 HTML 真的变了才重建，AI 停下重读不会清掉用户正在预览里的输入。基准与验证证据见 [工具中心第四轮整改](tools-center-round4.md)。
 
 维护者可先阅读 [代码地图与 Agent 交接](plugin-platform-handoff.md)，区分源码、构建产物和账号数据目录。

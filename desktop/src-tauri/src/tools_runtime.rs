@@ -231,3 +231,13 @@ pub fn tools_open_electron(
     };
     launch(window.app_handle(), argument.as_deref())
 }
+
+/// 打开「工具开发指导」窗口：复用工具宿主的单实例进程，带 `--aaw-guide`
+/// 启动（进程已在跑时由 second-instance 把它转交给唯一实例）。
+#[tauri::command]
+pub fn tools_open_guide(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("当前窗口无法打开开发指导。".into());
+    }
+    launch(window.app_handle(), Some("--aaw-guide"))
+}

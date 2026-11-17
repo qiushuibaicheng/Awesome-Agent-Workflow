@@ -12,6 +12,7 @@ import { runCli } from "./cli.mjs";
 const args = process.argv.slice(1);
 const cliMarker = args.indexOf("--aaw-cli");
 const launcherFile = join(import.meta.dirname, "launcher.html");
+const guideFile = join(import.meta.dirname, "guide.html");
 
 /** 系统通知：拿不到通知权限或平台不支持时静默跳过，不因为提示失败而影响启动。 */
 function notify(title, body) {
@@ -28,6 +29,7 @@ let parentTimer;
 function request() {
   return {
     openTool: args.find((item) => item.startsWith("--aaw-open="))?.slice(11),
+    guide: args.includes("--aaw-guide"),
     background: args.includes("--aaw-background"),
     parent: Number(process.env.AAW_TOOLS_PARENT_PID),
     bridge: { port: Number(process.env.AAW_LAUNCHER_PORT), token: process.env.AAW_LAUNCHER_TOKEN },
@@ -113,6 +115,36 @@ function installLauncher(root, isolated) {
   const catalog = createLauncherCatalog(root, store, {
     openTool: (tool, settings) => loadTool(isolated, tool, true, settings), openDesktop: createDesktopBridge(),
   });
+  /**
+   * 工具开发指导：一个正经的文档窗口。
+   *
+   * 之前只有一个「安装规范」按钮——内容写进了 AI 技能目录，人却看不到。
+   * 这份正文与写进 AGENTS.md / SKILL.md 的是同一段文字（构建期从同一份
+   * 源码渲染），所以"人读的"和"AI 读的"不会互相矛盾。
+   */
+  let guideWindow;
+  function openGuide() {
+    if (guideWindow && !guideWindow.isDestroyed()) {
+      if (guideWindow.isMinimized()) guideWindow.restore();
+      guideWindow.focus();
+      return;
+    }
+    const theme = readAppearance(root).theme;
+    guideWindow = new BrowserWindow({
+      show: false, width: 980, height: 720, minWidth: 720, minHeight: 460,
+      title: "工具开发指导", autoHideMenuBar: true,
+      icon: join(import.meta.dirname, "icon.png"),
+      backgroundColor: theme === "warm" ? "#f7f8fa" : "#16181f",
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false },
+    });
+    guideWindow.on("closed", () => { guideWindow = undefined; });
+    guideWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // 页内锚点不算导航，这里拦的是把文档窗口导去别处。
+    guideWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+    guideWindow.once("ready-to-show", () => guideWindow?.show());
+    void guideWindow.loadFile(guideFile, { query: { theme } })
+      .catch((error) => dialog.showErrorBox("工具开发指导", error.message));
+  }
   const shortcuts = createShortcutController(globalShortcut, store, () => showLauncher(true));
   /**
    * "正在录快捷键"这一段必须把全局热键让出来：用户按下的第一下往往就是当前
@@ -210,11 +242,13 @@ function installLauncher(root, isolated) {
 
   ipcMain.handle("tools:list", (event) => {
     verifySender(event);
-    const { entries, signedIn } = catalog.read();
+    // theme 跟着这次 read 一起回去：页面不必再为它单发一次 IPC（那会再读一遍
+    // preferences.json，里面存着每个工具的完整 HTML）。
+    const { entries, signedIn, theme } = catalog.read();
     return { entries: entries.map((entry) => {
       const { id, name, description, keywords, source, scope, icon, glyph, tone, recent, pinned, pinOrder } = entry;
       return { id, name, description, keywords, source, scope, icon, glyph, tone, recent, pinned, pinOrder };
-    }), signedIn, ...shortcuts.state };
+    }), signedIn, theme, ...shortcuts.state };
   });
   ipcMain.handle("tools:open", async (event, id) => {
     verifySender(event);
@@ -291,7 +325,9 @@ function installLauncher(root, isolated) {
       process.env.AAW_LAUNCHER_TOKEN = intent.bridge.token;
     }
     watchDesktop(intent?.parent);
-    if (intent?.openTool) {
+    if (intent?.guide) {
+      openGuide();
+    } else if (intent?.openTool) {
       void open(`personal:${intent.openTool}`).catch((error) => dialog.showErrorBox("无法打开 AAW 工具", error.message));
     } else if (!intent?.background && !launcher?.isVisible()) showLauncher();
   };

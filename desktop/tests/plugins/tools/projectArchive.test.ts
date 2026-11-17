@@ -10,7 +10,7 @@ it("exports editable project sources and roundtrips authoring files, actions and
   const bytes = exportToolProject(tool);
   expect([...bytes.slice(0, 4)]).toEqual([80, 75, 3, 4]);
   const files = unzipSync(bytes);
-  // 导出的源码包不要求 Node：没有 package.json / scripts/build.mjs，改完直接拖回去导入。
+  // 导出的源码包不要求 Node：没有 package.json / scripts/build.mjs，改完在工具中心点「导入工具」选它。
   expect(Object.keys(files)).toEqual(expect.arrayContaining(["manifest.json", "index.html", "README.md", "src/notes.md"]));
   expect(Object.keys(files)).not.toContain("package.json");
   const imported = importToolProject(bytes);

@@ -15,7 +15,10 @@ for (const width of [360, 740, 1100]) for (const theme of ["dark", "warm"]) {
     await page.goto(`/tests/visual/toolsFixture.html${theme === "warm" ? "?warm" : ""}`);
     await page.evaluate(() => document.documentElement.style.setProperty("--ui-font-size", "20px"));
     await expect(page.getByRole("button", { name: "更多操作：JSON 格式化", exact: true })).toBeVisible();
-    await expect(page.locator(".tool-card p").first()).toHaveCSS("font-size", "12px");
+    await expect(page.locator(".tool-row-meta").first()).toHaveCSS("font-size", "11px");
+    // 密度是可验收的指标：360px 宽、850px 高的右栏里至少能看到 7 个工具。
+    // 卡片式布局在同样高度只能放 3 个，这一条防止以后又把行高做大回去。
+    expect(await page.locator(".tool-row").evaluateAll((rows) => rows.filter((row) => row.getBoundingClientRect().bottom <= window.innerHeight).length)).toBeGreaterThanOrEqual(7);
     await page.screenshot({ path: `node_modules/.cache/tools-library-${theme}-${width}.png` });
     await selectToolAction(page, "JSON 格式化", "管理");
     await page.getByLabel("缩进空格数", { exact: false }).fill("4");
@@ -36,13 +39,12 @@ for (const width of [360, 740, 1100]) for (const theme of ["dark", "warm"]) {
     await selectToolAction(page, "未声明设置的工具", "管理");
     await expect(page.getByText("此插件暂未提供自定义设置")).toBeVisible();
     await page.getByRole("button", { name: "← 返回工具中心" }).click();
-    await page.getByRole("button", { name: "开发模式", exact: true }).click();
-    await page.getByRole("button", { name: "载入示例", exact: true }).click();
-    const preview = page.getByRole("button", { name: "运行预览", exact: true });
-    await expect(preview).toHaveCSS("font-size", "12px");
-    await expect(page.getByLabel("工具包源码")).toHaveCSS("font-size", "12px");
-    expect((await preview.boundingBox())!.height).toBeGreaterThanOrEqual(32);
-    await page.screenshot({ path: `node_modules/.cache/tools-development-${theme}-${width}.png` });
+    // 开发指导现在是独立的 Electron 窗口：面板里只保证入口在、能点、不报错。
+    const guide = page.getByRole("button", { name: "开发指导 ↗", exact: true });
+    await expect(guide).toBeVisible();
+    await guide.click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.screenshot({ path: `node_modules/.cache/tools-guide-entry-${theme}-${width}.png` });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }
@@ -55,7 +57,10 @@ test("exports a downloadable source ZIP with editable HTML and build script", as
   expect(download.suggestedFilename()).toBe("json-formatter-1.0.0-source.zip");
   const tool = importToolProject(new Uint8Array(await readFile(await download.path())));
   expect(tool.id).toBe("json-formatter");
-  expect(tool.sourceFiles?.["scripts/build.mjs"]).toContain("writeFileSync");
+  // 源码包不再带 Node 构建脚本，也不该再叫人「拖回」（拖拽导入没实现过）。
+  expect(tool.sourceFiles?.["scripts/build.mjs"]).toBeUndefined();
+  expect(tool.sourceFiles?.["README.md"]).toContain("导入工具");
+  expect(tool.sourceFiles?.["README.md"]).not.toContain("拖");
   expect(tool.html).toContain("aawActions");
   await expect(page.getByRole("status")).toContainText("已导出");
 });
@@ -66,15 +71,15 @@ for (const width of [360, 740]) {
     await page.goto(`/tests/visual/toolsFixture.html${width === 360 ? "?warm" : ""}`);
     await selectToolAction(page, "JSON 格式化", "管理");
     await page.getByLabel(/缩进空格数/).fill("4");
-    await page.getByRole("button", { name: "编辑工具包", exact: true }).click();
+    await page.getByRole("button", { name: /返回工具中心/ }).click();
     await expect(page.getByRole("alert")).toBeInViewport();
     await expect(page.getByRole("button", { name: "继续编辑" })).toBeFocused();
     await page.screenshot({ path: `node_modules/.cache/tools-unsaved-${width}.png` });
     await page.getByRole("button", { name: "继续编辑" }).click();
     await expect(page.getByLabel(/缩进空格数/)).toHaveValue("4");
-    await page.getByRole("button", { name: "编辑工具包", exact: true }).click();
-    await page.getByRole("button", { name: "放弃修改并继续" }).click();
-    await expect(page.getByLabel("工具包源码")).toBeVisible();
+    await page.getByRole("button", { name: /返回工具中心/ }).click();
+    await page.getByRole("button", { name: "放弃修改并返回" }).click();
+    await expect(page.getByRole("list", { name: "已安装工具" })).toBeVisible();
   });
 }
 
@@ -82,7 +87,7 @@ for (const width of [360, 740]) {
   test(`stalled project hands the work back to the user at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 720 });
     await page.goto("/tests/visual/toolsFixture.html?stalled");
-    await page.getByRole("button", { name: /工具项目/ }).click();
+    await page.getByRole("button", { name: /制作工具/ }).click();
     await expect(page.getByText("打开目录自己改", { exact: true })).toBeVisible();
     const openDir = page.getByRole("button", { name: "打开项目目录", exact: true });
     const recheck = page.getByRole("button", { name: "我改完了，重新校验", exact: true });

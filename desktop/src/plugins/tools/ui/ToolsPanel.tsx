@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useStore } from "zustand";
 import { DangerButton, btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
@@ -8,11 +8,9 @@ import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
 import { useHeaderMenu } from "../../../shared/ui/useHeaderMenu.ts";
 import type { HostService } from "../../host/service.ts";
 import type { ProjectService } from "../../project/service.ts";
-import { parseToolPackage } from "../runtime/package.ts";
 import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
 import { migrateLegacyTools } from "../runtime/project.ts";
 import { ActiveProjectCard, NewToolForm } from "./ToolBuilder.tsx";
-import { ToolDeveloper } from "./ToolDeveloper.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
 import { ToolPreview } from "./ToolPreview.tsx";
 import { ToolProjectList } from "./ToolProjects.tsx";
@@ -21,17 +19,15 @@ import type { WorkshopService } from "./workshop.ts";
 import { toolGlyph, toneOf } from "./mark.ts";
 import type { ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
-import { sampleTool } from "./sample.ts";
 import "./tools.css";
 
 type View =
   | { kind: "library" }
   | { kind: "projects" }
-  | { kind: "developer" }
   | { kind: "manage"; id: string }
   | { kind: "preview"; tool: ToolPackage };
 
-type Tab = "library" | "projects" | "developer";
+type Tab = "library" | "projects";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -51,7 +47,6 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
   const tools = useStore(service.state);
   const workshopState = useStore(workshop.state);
   const [view, setView] = useState<View>({ kind: "library" });
-  const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [removing, setRemoving] = useState<{ id: string; files: boolean }>();
   const [feedback, setFeedback] = useState<{ text: string; error?: true }>();
@@ -60,7 +55,13 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
   const picker = useRef<HTMLInputElement>(null);
   const active = view.kind === "preview" ? view.tool : undefined;
   const managed = view.kind === "manage" ? tools.find(({ package: tool }) => tool.id === view.id) : undefined;
-  const tab: Tab = view.kind === "projects" || view.kind === "developer" ? view.kind : "library";
+  const tab: Tab = view.kind === "projects" ? "projects" : "library";
+  // 列表可能上百条：搜索输入先降级渲染，打字时不会卡在过滤上。
+  const query = useDeferredValue(search);
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(needle))
+    : tools;
 
   // 每次进面板刷一次项目列表：AI 刚写完的项目要能立刻出现。
   useEffect(() => { void workshop.refreshProjects(); }, [workshop]);
@@ -137,10 +138,12 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     const filename = `${tool.id}-${tool.version}-source.zip`;
     try {
       const bytes = exportToolProject(tool);
+      let destination = filename;
       if (host.isNative()) {
         const path = await host.dialogs.saveFile({ defaultPath: filename, filters: [{ name: "工具源码", extensions: ["zip"] }] });
         if (!path) { setFeedback({ text: "已取消导出。" }); return; }
         await host.writeToolArchive(path, bytes);
+        destination = path;
       } else {
         const url = URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: "application/zip" }));
         const link = document.createElement("a");
@@ -149,16 +152,24 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
-      setFeedback({ text: "已导出 ZIP：直接把它拖回工具中心即可导入，不需要 Node、不需要构建。" });
+      // 之前写的是"拖回工具中心即可导入"——但拖拽从来没被支持过，用户会照着做然后发现没反应。
+      // 只说真实存在的路径：点「导入工具」选这个文件。
+      setFeedback({ text: `已导出到 ${destination}。要导入时点右上角「导入工具」，选中这个 ZIP 即可；不需要 Node，也不需要构建。` });
     } catch (error) {
       setFeedback({ text: `导出失败：${errorText(error)}`, error: true });
     } finally { setBusy(false); }
   }
 
-  function edit(tool: ToolPackage) {
-    setDraft(JSON.stringify(tool, null, 2));
+  /** 打开「工具开发指导」窗口：内容与 AI 读的规范同源。 */
+  async function openGuide() {
+    if (busy) return;
+    setBusy(true);
     setFeedback(undefined);
-    setView({ kind: "developer" });
+    try {
+      await host.openToolsGuide();
+    } catch (error) {
+      setFeedback({ text: errorText(error), error: true });
+    } finally { setBusy(false); }
   }
 
   async function previewProject(dir: string) {
@@ -195,7 +206,6 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     const entry = tools.find((item) => item.package.id === tool.id);
     const entries: ContextMenuEntry[] = [
       { id: "manage", label: "管理", onSelect: () => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); } },
-      { id: "edit", label: "编辑工具包", onSelect: () => edit(tool) },
       { id: "export", label: "导出源码", disabled: busy, onSelect: () => void exportTool(tool) },
       // 只有"装过至少两次"的工具才有上一版：装坏了这一步能救回来。
       ...(entry?.previousVersion
@@ -222,7 +232,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
 
   if (managed) return <ToolManagement key={`${managed.package.id}:${JSON.stringify(managed.settings)}:${JSON.stringify(managed.package.settingsSchema)}`} entry={managed} busy={busy} feedback={feedback}
     onBack={() => { setView({ kind: "library" }); setFeedback(undefined); }}
-    onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)} onEdit={() => edit(managed.package)}
+    onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)}
     onRollback={() => void rollbackTool(managed.package.id)}
     onSave={(values) => { try { service.saveSettings(managed.package.id, values); setFeedback({ text: "设置已保存，重新打开插件后生效。" }); return true; } catch (error) { setFeedback({ text: errorText(error), error: true }); return false; } }}
     onRemove={() => run(() => { service.remove(managed.package.id); setView({ kind: "library" }); })}
@@ -253,8 +263,9 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
         </div>
         <div className="tools-tabs mt-4 flex flex-wrap items-center gap-2">
           <button type="button" className={tab === "library" ? btnSecondary : btnGhost} aria-pressed={tab === "library"} onClick={() => setView({ kind: "library" })}>已安装 · {tools.length}</button>
-          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => setView({ kind: "projects" })}>工具项目 · {workshopState.projects.length}</button>
-          <button type="button" className={tab === "developer" ? btnSecondary : btnGhost} aria-pressed={tab === "developer"} onClick={() => setView({ kind: "developer" })}>开发模式</button>
+          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => setView({ kind: "projects" })}>制作工具 · {workshopState.projects.length}</button>
+          {/* 开发指导独立成窗口：内容是全平台通用的规范，不该混在"做某个工具"的流程里。 */}
+          <button type="button" className={`${btnGhost} tools-guide`} onClick={() => void openGuide()} disabled={busy}>开发指导 ↗</button>
         </div>
         <input ref={picker} type="file" multiple accept=".zip,.json,application/zip,application/json" onChange={(event) => void importFiles(event)} hidden />
       </header>
@@ -283,18 +294,14 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
             onPreview={(dir) => void previewProject(dir)}
             onInstall={(dir) => void installProject(dir)}
           />
-        </>}
-
-        {tab === "developer" && <>
-          <ToolDeveloper source={draft} onChange={setDraft} onExample={() => edit(sampleTool)}
-            onPreview={() => run(() => setView({ kind: "preview", tool: parseToolPackage(draft) }))}
-            onInstall={() => run(() => { installPackage(parseToolPackage(draft)); })} />
+          {/* 以前这块是一整张"安装规范"卡片——内容写进了 AI 技能目录，人却看不见。
+              现在内容在「开发指导」窗口里，这里只负责把同一份正文也交给 AI。 */}
           <section aria-label="AI 开发规范" className="build-guide">
             <div>
-              <strong>把开发规范装进 AI 技能目录</strong>
-              <p>装一次即可：以后在普通会话里让 AI 做工具，它也知道清单怎么填、红线是什么。</p>
+              <strong>让 AI 也按这份指导做工具</strong>
+              <p>写进 AI 技能目录后，普通会话里让 AI 做工具也会守同一份契约；正文就是「开发指导」里那份。</p>
             </div>
-            <button type="button" className={btnSecondary} onClick={() => void workshop.installGuide()}>安装规范</button>
+            <button type="button" className={btnSecondary} onClick={() => void workshop.installGuide()} disabled={!host.isNative()}>同步到 AI 技能目录</button>
             {workshopState.guideNote && <p className={`build-hint ${workshopState.guideNote.error ? "is-error" : ""}`}>{workshopState.guideNote.text}</p>}
           </section>
         </>}
@@ -312,41 +319,45 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
             </div>
           )}
           {tools.length > 0 && <label className="tools-search"><span aria-hidden="true">⌕</span><input aria-label="搜索已安装工具" placeholder="搜索你的工具…" value={search} onChange={(event) => setSearch(event.target.value)} /><span>{tools.length}</span></label>}
-          <ul aria-label="已安装工具" className="tools-grid">
-            {tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(search.trim().toLowerCase())).map(({ package: tool }) => (
-              <li key={tool.id} className="tool-card flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-info/35">
+          {/* 紧凑行而不是大卡片：右栏只有 360px 左右，卡片式一屏只能放三个，
+              而"打开某个工具"是这一页最高频的动作。一行一个，扫视成本最低。 */}
+          <ul aria-label="已安装工具" className="tool-rows">
+            {visible.map(({ package: tool }) => (
+              <li key={tool.id} className={`tool-row ${removing?.id === tool.id ? "is-expanded" : ""}`}>
                 {/* 图标与底色都由工具 id 决定，与小窗完全一致：字形优先，缺省用名称首字。 */}
-                <span aria-hidden="true" className={`tool-symbol tone-${toneOf(tool.id)}`}>{toolGlyph(tool)}</span>
-                <div className="mr-auto min-w-[6rem] flex-1">
-                  <h3 className="break-words text-ui-base font-semibold text-ink">{tool.name}</h3>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-ui-sm text-ink-subtle">
-                    <span>v{tool.version}</span>
-                    {tool.permissions?.network && <span className="tool-badge is-network">可联网</span>}
-                    {!!tool.actions?.length && <span className="inline-flex items-center gap-1 text-info"><SquareTerminalIcon className="size-3.5" />{tool.actions.length} 个动作 · AI 可调用</span>}
-                  </p>
+                <span aria-hidden="true" className={`tool-symbol is-row tone-${toneOf(tool.id)}`}>{toolGlyph(tool)}</span>
+                <div className="tool-row-main">
+                  <span className="tool-row-name">{tool.name}</span>
+                  <span className="tool-row-meta">
+                    v{tool.version}
+                    {!!tool.actions?.length && <span className="tool-row-tag"><SquareTerminalIcon className="size-3" />{tool.actions.length} 动作</span>}
+                    {tool.permissions?.network && <span className="tool-row-tag">可联网</span>}
+                  </span>
                 </div>
                 {removing?.id === tool.id ? (
-                  <div className="tool-remove">
-                    <p>卸载 {tool.name}？</p>
+                  <div className="tool-remove is-row">
+                    <div className="tool-remove-actions">
+                      <button type="button" className={btnGhost} onClick={() => setRemoving(undefined)}>取消</button>
+                      {/* 危险动作给危险配色，取消退回中性：之前两者权重是反的。 */}
+                      <DangerButton onClick={() => void confirmRemove(tool.id, removing.files)}>卸载</DangerButton>
+                    </div>
                     <label className="tool-remove-option">
                       <input type="checkbox" checked={removing.files} onChange={(event) => setRemoving({ id: tool.id, files: event.target.checked })} />
                       同时删除项目目录与工具数据
                     </label>
-                    <div className="tool-remove-actions">
-                      <button type="button" className={btnGhost} onClick={() => setRemoving(undefined)}>取消</button>
-                      {/* 危险动作给危险配色，取消退回中性：之前两者权重是反的。 */}
-                      <DangerButton onClick={() => void confirmRemove(tool.id, removing.files)}>确认卸载</DangerButton>
-                    </div>
                   </div>
                 ) : (
-                  <div className="tool-actions flex flex-wrap gap-1">
-                    <button type="button" className={btnPrimary} aria-label={`打开 ${tool.name}`} disabled={busy} onClick={() => void openElectron(tool.id)}>打开 ↗</button>
-                    <button type="button" className={btnGhost} aria-label={`更多操作：${tool.name}`} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === tool.id} onClick={(event) => openCardMenu(event, tool)}>⋯</button>
+                  <div className="tool-row-actions">
+                    <button type="button" className="tool-row-open" aria-label={`打开 ${tool.name}`} disabled={busy} onClick={() => void openElectron(tool.id)}>打开</button>
+                    <button type="button" className="tool-row-more" aria-label={`更多操作：${tool.name}`} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === tool.id} onClick={(event) => openCardMenu(event, tool)}>⋯</button>
                   </div>
                 )}
               </li>
             ))}
           </ul>
+          {needle && visible.length === 0 && (
+            <p className="build-hint">{`没有名字或 ID 含「${query.trim()}」的工具。`}</p>
+          )}
         </>}
       </div>
       {cardMenu.menu && (

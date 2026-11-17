@@ -234,6 +234,8 @@ desktop/vite.config.ts
 
 源码导出合并 README、package.json、scripts/build.mjs 模板时，按不区分大小写判断作者是否已经提供对应文件；已有作者文件优先且保留原路径和内容。避免有效的 readme.md / PACKAGE.JSON 等与自动模板形成 Windows 重复路径，导致导出的 ZIP 无法重新导入。回归覆盖导出、重新导入、再次导出，不修改真实用户安装库。
 
+> 后续变化（第四轮整改）：导出已不再生成 `package.json` / `scripts/build.mjs`，模板只剩 `README.md` + `manifest.json` + `index.html`，不需要 Node 构建；装回去统一走「导入工具」选 ZIP。见 [工具中心第四轮整改](tools-center-round4.md)。
+
 ## 2026-11-17 02:51 巡检修复：管理页未保存设置保护
 
 ToolManagement 的返回、编辑工具包、已选择文件的更新源码共用 requestAction 待确认动作。设置有修改时先提示并聚焦“继续编辑”，取消保留输入，只有明确放弃后执行原动作；没有修改时直接执行。不能把用户选文件等同于同意丢弃当前设置。打开插件、导出等不离开管理页的操作不增加无关确认。

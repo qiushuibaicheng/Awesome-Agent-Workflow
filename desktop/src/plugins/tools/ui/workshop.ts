@@ -71,6 +71,8 @@ export interface WorkshopSnapshot {
   readonly running: boolean;
   readonly projects: readonly ToolProjectSummary[];
   readonly projectsLoading: boolean;
+  /** 默认项目根目录（AAW 数据目录 / tools / projects），让用户点开看一眼。 */
+  readonly projectsRoot: string | null;
   /** 一键写入手册的结果（成功/失败都留一条，避免按钮点了没反应）。 */
   readonly guideNote: WorkshopNote | null;
 }
@@ -90,6 +92,8 @@ export interface WorkshopService {
   rename(dir: string, input: { readonly name?: string; readonly id?: string }): Promise<WorkshopNote>;
   /** 打开项目目录（文件管理器）。目录不在了就给一句明确的话，而不是静默失败。 */
   openDir(dir?: string): Promise<void>;
+  /** 打开默认项目根目录：用户看到"默认位置"就该能点开它。 */
+  openProjectsRoot(): Promise<void>;
   /** 打开一个已有工具项目（继续开发：新开一条会话）。 */
   resume(dir: string): Promise<void>;
   /** 选中一个已有项目作为"当前项目"（只校验，不切视图）。 */
@@ -145,6 +149,7 @@ export function createWorkshop(deps: {
     running: false,
     projects: [],
     projectsLoading: false,
+    projectsRoot: null,
     guideNote: null,
   }));
   const view = createSnapshotView(store, (snapshot) => snapshot);
@@ -244,6 +249,7 @@ export function createWorkshop(deps: {
   void (async () => {
     try {
       const root = await io.userDataDir("tools", "projects");
+      patch({ projectsRoot: root });
       project.projects.setRecentExclusions([root]);
     } catch { /* 拿不到目录只是不排除，不影响主流程 */ }
   })();
@@ -427,6 +433,31 @@ export function createWorkshop(deps: {
           return;
         }
         await host.files.openInFileManager(target, "directory");
+      } catch (error) {
+        patch({ note: { text: `打不开目录：${errorText(error)}`, error: true } });
+      }
+    },
+
+    async openProjectsRoot() {
+      if (!host.isNative()) {
+        patch({ note: { text: "浏览器预览模式打不开本地目录，请在桌面版里打开。", error: true } });
+        return;
+      }
+      const root = store.getState().projectsRoot ?? await io.userDataDir("tools", "projects");
+      try {
+        if (await io.pathExists(root)) {
+          await host.files.openInFileManager(root, "directory");
+          return;
+        }
+        // 一个项目都没建时根目录确实不存在：退到最近的已存在祖先，并说清它会在哪出现。
+        // 只弹一句"不存在"等于让按钮点了没反应。
+        const parent = root.replace(/[\\/][^\\/]+$/, "");
+        if (parent && parent !== root && await io.pathExists(parent)) {
+          patch({ note: { text: `还没有工具项目；根目录会在第一次「开始做」后出现：${root}` } });
+          await host.files.openInFileManager(parent, "directory");
+          return;
+        }
+        patch({ note: { text: `还没有工具项目，根目录也还没创建：${root}`, error: true } });
       } catch (error) {
         patch({ note: { text: `打不开目录：${errorText(error)}`, error: true } });
       }

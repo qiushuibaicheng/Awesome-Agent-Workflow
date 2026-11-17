@@ -13,7 +13,7 @@ import { fakeWorkshop } from "./fakeWorkshop.ts";
 it("defers a selected source update until dirty settings are explicitly discarded", () => {
   const update = vi.fn();
   const { container } = render(<ToolManagement entry={{ package: sampleTool }} onBack={vi.fn()} onOpen={vi.fn()}
-    onExport={vi.fn()} onUpdate={update} onEdit={vi.fn()} onSave={() => true} onRemove={vi.fn()} busy={false} />);
+    onExport={vi.fn()} onUpdate={update} onSave={() => true} onRemove={vi.fn()} busy={false} />);
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
   const file = new File(["{}"], "update.json", { type: "application/json" });
   const picker = container.querySelector('input[type="file"]')!;
@@ -27,7 +27,7 @@ it("defers a selected source update until dirty settings are explicitly discarde
   expect(update).toHaveBeenCalledExactlyOnceWith(file);
 });
 
-it("keeps unsaved settings until source editing is explicitly confirmed", () => {
+it("keeps unsaved settings until leaving the tool is explicitly confirmed", () => {
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool }]);
   const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
   const host = { isNative: () => true } as unknown as HostService;
@@ -35,13 +35,13 @@ it("keeps unsaved settings until source editing is explicitly confirmed", () => 
   openCardMenu();
   fireEvent.click(screen.getByRole("menuitem", { name: "管理" }));
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
-  fireEvent.click(screen.getByRole("button", { name: "编辑工具包" }));
+  fireEvent.click(screen.getByRole("button", { name: /返回工具中心/ }));
   expect(screen.getByRole("alert")).toHaveTextContent("未保存");
   fireEvent.click(screen.getByRole("button", { name: "继续编辑" }));
   expect(screen.getByLabelText(/缩进空格数/)).toHaveValue(4);
-  fireEvent.click(screen.getByRole("button", { name: "编辑工具包" }));
-  fireEvent.click(screen.getByRole("button", { name: "放弃修改并继续" }));
-  expect(screen.getByLabelText("工具包源码")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: /返回工具中心/ }));
+  fireEvent.click(screen.getByRole("button", { name: "放弃修改并返回" }));
+  expect(screen.getByRole("list", { name: "已安装工具" })).toBeVisible();
   expect(service.saveSettings).not.toHaveBeenCalled();
 });
 
@@ -103,7 +103,7 @@ it("offers opening the project directory and re-checking once AI gave up", () =>
     verify,
   };
   render(<ToolsPanel service={service} host={host} workshop={workshop} />);
-  fireEvent.click(screen.getByRole("button", { name: /工具项目/ }));
+  fireEvent.click(screen.getByRole("button", { name: /制作工具/ }));
   expect(screen.getByText(/AI 试了 3 轮也没修好/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "打开项目目录" }));
   expect(openDir).toHaveBeenCalledWith();

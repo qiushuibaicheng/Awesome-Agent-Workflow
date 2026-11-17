@@ -182,9 +182,9 @@ async function refresh(reset = true) {
   try {
     const result = await window.launcher.entries();
     if (generation !== refreshing) return;
-    // 主题跟着主窗走：默认深色，warm 主题才切浅色。读失败就保持上一次的值。
-    try { document.documentElement.dataset.theme = await window.launcher.theme(); }
-    catch { /* 主进程偶发不可用时沿用当前主题，不阻断列表刷新 */ }
+    // 主题跟着主窗走（默认深色，warm 才切浅色）：主进程随列表一起下发，
+    // 页面不再单发一次 IPC——那会再把 preferences.json 读一遍。
+    if (result.theme === "warm" || result.theme === "dark") document.documentElement.dataset.theme = result.theme;
     entries = result.entries;
     shortcutState(result);
     // reset 只重置"浏览态"（搜索词、展开、全部功能），不重置设置页与草稿。

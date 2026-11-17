@@ -31,6 +31,7 @@ export function apply(ctx: Context, options?: HostOptions): void {
     updates: host.updates,
     workflowEngine: host.workflowEngine,
     openToolsElectron: host.openToolsElectron,
+    openToolsGuide: host.openToolsGuide,
     writeToolArchive: host.writeToolArchive,
     listenLauncher: host.listenLauncher,
   } satisfies HostService);

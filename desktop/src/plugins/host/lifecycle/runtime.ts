@@ -50,6 +50,11 @@ export class DesktopHost implements HostService {
       await flushNativeConfiguration();
       await this.invoke("tools_open_electron", { toolId });
     });
+  readonly openToolsGuide: HostService["openToolsGuide"] = () =>
+    this.resources.run(async () => {
+      if (!isTauriEnv()) throw new Error("请在 AAW 桌面版中打开工具开发指导。");
+      await this.invoke("tools_open_guide", {});
+    });
   readonly exitGate = createHostExitGate();
   private exitDiagnostics?: ExitDiagnostics;
   private readonly flushForExit: ExitDiagnostics = (entry) =>

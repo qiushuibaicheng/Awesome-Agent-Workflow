@@ -1,8 +1,9 @@
-import { cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import electron from "electron";
+import { renderGuide } from "./guide-render.mjs";
 
 const desktop = fileURLToPath(new URL("../", import.meta.url));
 const source = join(desktop, "tools-runtime");
@@ -34,6 +35,25 @@ await build({
   bundle: true,
   format: "esm",
 });
+/**
+ * 指导文档：正文与 AI 读的 `AGENTS.md` / `SKILL.md` 同源（都出自 guide.ts），
+ * 这里把它渲染成静态页面。放构建期做，窗口打开时就不用再依赖脚本执行成功。
+ */
+const guideModule = join(staged, "guide-entry.mjs");
+await build({
+  entryPoints: [join(desktop, "src", "plugins", "tools", "runtime", "guideEntry.ts")],
+  outfile: guideModule,
+  bundle: true,
+  format: "esm",
+});
+const { markdown } = await import(pathToFileURL(guideModule).href);
+const { toc, body } = renderGuide(markdown);
+const template = readFileSync(join(source, "guide.html"), "utf8");
+writeFileSync(
+  join(appDir, "guide.html"),
+  template.replace("<!--GUIDE_TOC-->", toc).replace("<!--GUIDE_BODY-->", body),
+);
+rmSync(guideModule, { force: true });
 if (process.platform === "win32") cpSync(join(source, "aaw-tools.cmd"), join(staged, "aaw-tools.cmd"));
 writeFileSync(marker, version);
 process.stdout.write(`AAW tools runtime staged (Electron ${version}).\n`);

@@ -53,6 +53,8 @@ export interface HostService {
   readonly updates: UpdatesHost;
   readonly workflowEngine: WorkflowEngineHost;
   openToolsElectron(this: void, toolId?: string): Promise<void>;
+  /** 打开「工具开发指导」窗口（Electron 独立窗口，内容与 AI 读的规范同源）。 */
+  openToolsGuide(this: void): Promise<void>;
   writeToolArchive(this: void, path: string, bytes: Uint8Array): Promise<void>;
   listenLauncher(this: void, open: (target: string) => void | Promise<void>): Promise<() => void>;
 }
