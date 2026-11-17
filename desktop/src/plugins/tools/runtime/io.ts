@@ -40,7 +40,11 @@ export function memoryToolIO(seed: Readonly<Record<string, string>> = {}): ToolP
     },
     writeTextFile: (path, contents) => {
       files.set(path, contents);
-      for (let dir = parentOf(path); dir && dir !== path; dir = parentOf(dir)) dirs.add(dir);
+      let child = path;
+      for (let dir = parentOf(child); dir && dir !== child; dir = parentOf(child)) {
+        dirs.add(dir);
+        child = dir;
+      }
       return Promise.resolve();
     },
     movePath: (from, to) => {
