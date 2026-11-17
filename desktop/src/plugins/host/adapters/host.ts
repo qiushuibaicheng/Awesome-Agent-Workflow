@@ -19,7 +19,7 @@ import { homeDir } from "@tauri-apps/api/path";
 
 import { asSsoLoginPollWire } from "./ssoWire.ts";
 import type { SsoLoginPollWire } from "../types.ts";
-import type { CommandResult, HostRuntime } from "../types.ts";
+import type { CommandResult, HostRuntime, ToolPurgeReport } from "../types.ts";
 import { createBridgeHost } from "../dev/bridgeClient.ts";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +111,13 @@ export function createTauriHost(invoke: NativeInvoke = defaultInvoke): HostRunti
     },
     async userDataDir(namespace, directory) {
       return invoke<string>("user_data_dir", { namespace, directory });
+    },
+    async toolPurge(input) {
+      return invoke<ToolPurgeReport>("tool_purge", {
+        toolId: input.toolId,
+        owner: input.owner,
+        projectDirs: [...input.projectDirs],
+      });
     },
     async ssoOpenLogin(loginUrl) {
       try {
@@ -350,6 +357,28 @@ export function createDemoHost(): DemoHost {
         dataDirs.get(`${namespace}/${directory}`) ??
           `%APPDATA%/${namespace}/${directory}`,
       );
+    },
+    toolPurge(input) {
+      const removedDirs: string[] = [];
+      const skippedDirs: string[] = [];
+      for (const dir of input.projectDirs) {
+        const segments = normalizeKey(dir);
+        const node = nodeAt(segments);
+        const manifest = nodeAt([...segments, "manifest.json"]);
+        const owns = node?.type === "dir" && manifest?.type === "file"
+          && (manifest.contents.includes(`"id": "${input.toolId}"`)
+            || manifest.contents.includes(`"id":"${input.toolId}"`));
+        if (!owns) {
+          skippedDirs.push(dir);
+          continue;
+        }
+        removeAt(segments);
+        removedDirs.push(dir);
+      }
+      const dataSegments = ["%LOCALAPPDATA%", "com.aaw.desktop", "tools", "storage", input.owner, `${input.toolId}.json`];
+      const removedData = nodeAt(dataSegments)?.type === "file";
+      if (removedData) removeAt(dataSegments);
+      return Promise.resolve({ removedDirs, skippedDirs, removedData });
     },
     ssoOpenLogin() {
       return Promise.resolve();

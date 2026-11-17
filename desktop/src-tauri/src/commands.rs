@@ -283,6 +283,88 @@ pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
         .map_err(|error| format!("写入文件失败 {path}: {error}"))
 }
 
+/// 卸载工具时的清理结果：删了什么、跳过了什么（跳过要能说清原因）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolPurgeReport {
+    pub removed_dirs: Vec<String>,
+    pub skipped_dirs: Vec<String>,
+    pub removed_data: bool,
+}
+
+/// 判断一个目录是不是某工具的项目目录：必须有 manifest.json 且其中的 id 与
+/// 参数一致。这是删除前的最后一道闸——路径是前端传进来的，宁可少删也不能
+/// 把用户选过的父目录误删。
+fn is_tool_project_dir(dir: &std::path::Path, tool_id: &str) -> bool {
+    let manifest = dir.join("manifest.json");
+    let Ok(text) = std::fs::read_to_string(manifest) else {
+        return false;
+    };
+    // 只做字符串层面的一致性检查：这里不解析 JSON，避免为一个守卫引入解析分支。
+    text.contains(&format!("\"id\": \"{tool_id}\"")) || text.contains(&format!("\"id\":\"{tool_id}\""))
+}
+
+/// 删除一个工具留下的痕迹：项目目录 + `aawStore` 数据文件。
+///
+/// 工具在卸载后此前会永久残留目录与数据（`remove()` 只动注册表），用户既
+/// 看不到也清不掉。落点：项目目录由前端传入（可能在他选的位置），数据文件
+/// 固定在 `%LOCALAPPDATA%/com.aaw.desktop/tools/storage/<owner>/<id>.json`
+/// ——和 tools-runtime 的 `tool-storage.mjs` 保持同一口径。
+#[tauri::command]
+pub fn tool_purge(
+    tool_id: String,
+    owner: String,
+    project_dirs: Vec<String>,
+) -> Result<ToolPurgeReport, String> {
+    fn valid_id(part: &str) -> bool {
+        !part.is_empty()
+            && part.len() <= 64
+            && part
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-' || c == b'_')
+    }
+    if !valid_id(&tool_id) || !valid_id(&owner) {
+        return Err("工具 ID 或账号标识不合法".into());
+    }
+    let mut report = ToolPurgeReport {
+        removed_dirs: Vec::new(),
+        skipped_dirs: Vec::new(),
+        removed_data: false,
+    };
+    for raw in project_dirs {
+        let dir = std::path::Path::new(&raw);
+        if !dir.is_dir() || !is_tool_project_dir(dir, &tool_id) {
+            report.skipped_dirs.push(raw);
+            continue;
+        }
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => report.removed_dirs.push(raw),
+            Err(_) => report.skipped_dirs.push(raw),
+        }
+    }
+    #[cfg(windows)]
+    let base = std::env::var("LOCALAPPDATA").ok().filter(|s| !s.is_empty());
+    #[cfg(not(windows))]
+    let base = std::env::var("HOME").ok().filter(|s| !s.is_empty());
+    if let Some(base) = base {
+        let folder = if cfg!(windows) {
+            "com.aaw.desktop".to_string()
+        } else {
+            ".com.aaw.desktop".to_string()
+        };
+        let file = std::path::Path::new(&base)
+            .join(folder)
+            .join("tools")
+            .join("storage")
+            .join(&owner)
+            .join(format!("{tool_id}.json"));
+        if file.is_file() {
+            report.removed_data = std::fs::remove_file(&file).is_ok();
+        }
+    }
+    Ok(report)
+}
+
 /// Resolve namespaced user data without knowledge of any agent implementation.
 #[tauri::command]
 pub fn user_data_dir(namespace: String, directory: String) -> Result<String, String> {

@@ -74,6 +74,22 @@ export interface CommandResult {
  * 宿主能力接口：
  * copy_dir 为「先删目标再整树复制」的覆盖语义。
  */
+/** 卸载清理：删掉某工具的项目目录与用户数据。 */
+export interface ToolPurgeInput {
+  readonly toolId: string;
+  /** 账号标识（已规整过的目录段）。 */
+  readonly owner: string;
+  /** 要删除的项目目录；宿主会校验每个目录确实含该工具的 manifest.json。 */
+  readonly projectDirs: readonly string[];
+}
+
+export interface ToolPurgeReport {
+  readonly removedDirs: readonly string[];
+  /** 校验没过或删除失败的目录，界面要如实告诉用户"这几个没删掉"。 */
+  readonly skippedDirs: readonly string[];
+  readonly removedData: boolean;
+}
+
 export interface HostRuntime {
   /** 实现类别：tauri（真实宿主）| demo（内存替身）。 */
   readonly kind: "tauri" | "demo";
@@ -94,6 +110,13 @@ export interface HostRuntime {
   writeTextFile(path: string, contents: string): Promise<void>;
   /** Resolve a namespaced user data directory; both arguments are single safe segments. */
   userDataDir(namespace: string, directory: string): Promise<string>;
+  /**
+   * 卸载清理：删除工具的项目目录与 `aawStore` 数据文件。
+   *
+   * 传进来的目录不会被无条件删除——宿主先确认其中的 manifest.json 属于该
+   * 工具，对不上就跳过并在报告里返回，避免误删用户选过的父目录。
+   */
+  toolPurge(input: ToolPurgeInput): Promise<ToolPurgeReport>;
   /**
    * 打开（或唤起）SSO 登录窗口：首次调用创建 **隐藏** 窗口（给持久
    * cookie 的静默探测留窗口期），再次调用即唤起显示。语义见 sso_login.rs。
@@ -274,7 +297,7 @@ export type AccountHost = Pick<
 
 export type SkillFiles = Pick<
   HostRuntime,
-  "userDataDir" | "listDirNames" | "pathExists" | "copyDir" | "writeTextFile"
+  "userDataDir" | "listDirNames" | "pathExists" | "copyDir" | "writeTextFile" | "toolPurge"
 >;
 
 /**

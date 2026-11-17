@@ -87,6 +87,8 @@ export interface ProjectWorkspace {
     paths?: Partial<WorkspaceToolPaths>,
   ) => Promise<void>;
   readonly reloadWorkspacePreferences: () => void;
+  /** 注册不进入「最近项目」的路径前缀（工具项目用）。 */
+  readonly setRecentExclusions: (prefixes: readonly string[]) => void;
   pickDirectory(): Promise<string | null>;
   registerWorkspaceHealthCheck(check: WorkspaceHealthCheck): () => void;
   registerProject(path: string): void;
