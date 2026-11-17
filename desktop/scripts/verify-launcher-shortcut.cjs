@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- 这个脚本直接用 node 跑，不经 ESM 构建 */
+/* global document -- waitForFunction 的回调在页面里执行 */
 /**
  * 真机验证：把全局唤起快捷键从别的组合键改回 Alt+Space。
  *
@@ -43,10 +45,16 @@ const profile = mkdtempSync(path.join(tmpdir(), "aaw-launcher-verify-"));
     });
   });
 
-  // 打开设置页：这一刻主进程应当让出全局热键。
+  // 打开设置页：这一刻主进程应当让出全局热键，同时把 Alt+Space 临时占住。
   await win.click("#shortcut");
   const accelerator = win.locator("#accelerator");
   await accelerator.click();
+
+  // Alt+Space 只要能注册上，Windows 就不会把它当窗口菜单键——那个"关闭窗口"
+  // 的系统菜单只有键没被热键占住时才会弹。这条是能自动断言的等价事实。
+  const held = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Alt+Space"));
+  console.log(`Alt+Space held while recording: ${held}`);
+  if (!held) console.log("WARN 录制期间没占住 Alt+Space，按下去会弹系统菜单");
 
   const step = async (label) => {
     const visible = await app.evaluate(({ BrowserWindow }) =>
@@ -67,9 +75,24 @@ const profile = mkdtempSync(path.join(tmpdir(), "aaw-launcher-verify-"));
 
   const captures = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].__captures);
   console.log("main-process keydowns:", JSON.stringify(captures));
+
+  // Ctrl+A 单独验一遍：这组键能注册成功（代价是抢走所有应用的全选），
+  // 用户报的"设了却唤不起来"要么是注册失败、要么是保存失败但界面没退回。
+  await accelerator.press("Control+A");
+  const ctrlAHint = (await win.textContent("#shortcut-hint")) ?? "";
+  console.log(`Ctrl+A hint mentions 全选: ${ctrlAHint.includes("全选")}`);
+  await win.click("#shortcut-form button.primary");
+  await win.waitForFunction(() => (document.getElementById("message")?.textContent ?? "").includes("已保存"), undefined, { timeout: 5000 });
+  await win.click("#settings-close");
+  const ctrlARegistered = await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered("Control+A"));
+  console.log(`Ctrl+A registered after save: ${ctrlARegistered}`);
+
   const passed = result.value === "Alt+Space"
     && result.visible[0] === true
-    && !result.hint.includes("不能作为主键");
+    && held === true
+    && !result.hint.includes("不能作为主键")
+    && ctrlAHint.includes("全选")
+    && ctrlARegistered === true;
   console.log(passed ? "PASS" : "FAIL");
   await app.close();
   process.exitCode = passed ? 0 : 1;

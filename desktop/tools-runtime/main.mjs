@@ -121,11 +121,36 @@ function installLauncher(root, isolated) {
    * 它一旦没发出去，用户的全局热键就永久丢了。
    */
   let capturing = false;
+  /**
+   * 录制期间临时占住 Alt+Space。
+   *
+   * 不占的话，Windows 会把它当窗口菜单键，弹出左上角那个"还原/移动/大小/关闭"
+   * 的系统菜单——既挡住视线，又把焦点抢走，用户永远录不进 Alt+Space。
+   * 占住之后按键走热键通道，我们不 toggle，直接把组合键回送给页面。
+   */
+  const captureKey = "Alt+Space";
+  let captureKeyHeld = false;
+  function holdCaptureKey() {
+    if (captureKeyHeld) return;
+    captureKeyHeld = globalShortcut.register(captureKey, () => {
+      if (capturing) launcher?.webContents.send("launcher:shortcut-pressed", captureKey);
+    });
+  }
+  function dropCaptureKey() {
+    if (!captureKeyHeld) return;
+    globalShortcut.unregister(captureKey);
+    captureKeyHeld = false;
+  }
   function setCapture(active) {
     if (active === capturing) return;
     capturing = active;
-    if (active) shortcuts.pause();
-    else shortcuts.resume();
+    if (active) {
+      shortcuts.pause();
+      holdCaptureKey();
+    } else {
+      dropCaptureKey();
+      shortcuts.resume();
+    }
   }
 
   async function open(id) {
@@ -150,16 +175,8 @@ function installLauncher(root, isolated) {
       });
       launcher.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       launcher.webContents.on("will-navigate", (event) => event.preventDefault());
-      // Windows 把 Alt+Space 当窗口系统菜单键，页面的 keydown 根本收不到那一下
-      // Space。录制时在这里接住再回送，用户才能把快捷键改回默认的 Alt+Space。
-      launcher.webContents.on("before-input-event", (event, input) => {
-        if (!capturing || input.type !== "keyDown") return;
-        if (!input.alt || input.code !== "Space") return;
-        event.preventDefault();
-        launcher?.webContents.send("launcher:shortcut-pressed", "Alt+Space");
-      });
-      // 录制时不因失焦隐藏：系统菜单会抢走焦点，隐藏等于把用户正在改的东西弄丢。
-      launcher.on("blur", () => { if (!capturing) launcher?.hide(); });
+      // 失焦即收起；隐藏时 setCapture(false) 会把全局热键和临时占位一起收回来。
+      launcher.on("blur", () => launcher?.hide());
       launcher.on("hide", () => setCapture(false));
       launcher.on("closed", () => { launcher = undefined; });
       launcher.once("ready-to-show", () => showLauncher());
@@ -215,7 +232,14 @@ function installLauncher(root, isolated) {
   });
   ipcMain.handle("launcher:shortcut", (event, value) => {
     verifySender(event);
-    shortcuts.change(value);
+    // 保存的一瞬要把临时占位让开，否则用户想把默认键存回去时会被自己挡住；
+    // 存完仍在录制态，再占回来。
+    dropCaptureKey();
+    try {
+      shortcuts.change(value);
+    } finally {
+      if (capturing) holdCaptureKey();
+    }
     updateTray();
     return shortcuts.state;
   });

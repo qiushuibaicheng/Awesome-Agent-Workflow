@@ -74,14 +74,19 @@ export function createShortcutController(api, store, callback) {
     change(value) {
       const next = normalizeShortcut(value);
       if (next === current && ready && !paused) return;
-      if (!api.register(next, callback)) throw new Error("此快捷键被占用，原快捷键已保留。请换一组按键。");
+      // 注册成功只代表"这组键能用"，不代表录制期间就该常驻——见下面的保持暂停。
+      if (!api.register(next, callback))
+        throw new Error("这组键被其他程序占用了，原来的快捷键仍然生效。换一组，或先关掉占用它的程序。");
       try { store.update({ shortcut: next }); }
       catch (error) { api.unregister(next); throw error; }
       // 暂停态下 current 早已解绑，重复解绑会把刚注册的新键的语义弄混。
       if (!paused && ready && current !== next) api.unregister(current);
       current = next;
       ready = true;
-      paused = false;
+      if (paused) {
+        // 还在录：刚存下的这组立刻让出来，否则用户下一次按键会被它关掉窗口。
+        api.unregister(next);
+      }
     },
   };
 }

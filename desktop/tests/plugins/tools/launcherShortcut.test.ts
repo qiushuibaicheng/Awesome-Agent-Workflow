@@ -49,23 +49,26 @@ it("暂停期间能从别的组合键改回 Alt+Space", () => {
 
   controller.change("Alt+Space");
   expect(saved()).toBe("Alt+Space");
-  expect(registered.has("Alt+Space")).toBe(true);
-  // 暂停时旧键早已解绑，change 不该把刚注册上的新键顺手解掉。
+  // 还在录：存下不等于常驻，否则下一次按键会被它关掉窗口。
+  expect(registered.has("Alt+Space")).toBe(false);
   expect(registered.has("Control+Space")).toBe(false);
 
   controller.resume();
   expect(registered.has("Alt+Space")).toBe(true);
 });
 
-it("暂停期间换键后恢复，不会把新键重复注册成冲突", () => {
-  const { api, registered, controller } = boot();
+it("暂停期间换键：先验证能用，退出录制后才真正注册", () => {
+  const { api, registered, controller, saved } = boot();
   controller.start();
   controller.pause();
-  controller.change("Control+Alt+K");
   api.register.mockClear();
 
+  controller.change("Control+Alt+K");
+  expect(api.register).toHaveBeenCalledWith("Control+Alt+K", expect.any(Function));
+  expect(saved()).toBe("Control+Alt+K");
+  expect(registered.has("Control+Alt+K")).toBe(false);
+
   controller.resume();
-  expect(api.register).not.toHaveBeenCalled();
   expect(registered.has("Control+Alt+K")).toBe(true);
 });
 

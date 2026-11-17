@@ -161,18 +161,38 @@ it("shows the saved default after resetting an edited shortcut", async () => {
   expect(accelerator.value).toBe("Alt+Space");
 });
 
-it("retains the edited shortcut when restoring the default fails", async () => {
-  const { launcher, wake } = boot();
+/**
+ * 保存失败必须把输入框退回仍然生效的那组。
+ * 之前失败后输入框还留着新值，用户以为改成功了，按下去却没反应。
+ */
+it("rolls the field back to the live shortcut when saving fails", async () => {
+  const { launcher } = boot();
   await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
   document.getElementById("settings-open")!.click();
   const accelerator = document.getElementById("accelerator") as HTMLInputElement;
-  accelerator.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
-  launcher.shortcut.mockRejectedValueOnce(new Error("快捷键已被占用"));
-  document.getElementById("reset-shortcut")!.click();
-  await vi.waitFor(() => expect(document.getElementById("message")!.textContent).toContain("占用"));
-  wake();
-  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalledTimes(2));
-  expect(accelerator.value).toBe("Control+Alt+K");
+  accelerator.value = "Control+A";
+  accelerator.dispatchEvent(new Event("input"));
+  launcher.shortcut.mockRejectedValueOnce(new Error("这组键被其他程序占用了，原来的快捷键仍然生效。"));
+  document.getElementById("shortcut-form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+  await vi.waitFor(() => expect(document.getElementById("message")!.textContent).toContain("仍然生效"));
+  expect(accelerator.value).toBe("Alt+Space");
+});
+
+it("warns that Ctrl+A means select-all elsewhere, without blocking the capture", async () => {
+  const { launcher } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  document.getElementById("settings-open")!.click();
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+  const hint = document.getElementById("shortcut-hint")!;
+
+  accelerator.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", ctrlKey: true, bubbles: true, cancelable: true }));
+  expect(accelerator.value).toBe("Control+A");
+  expect(hint.textContent).toContain("全选");
+
+  // 加一个 Shift 就绕开了这个冲突，提示也要跟着消失。
+  accelerator.dispatchEvent(new KeyboardEvent("keydown", { key: "A", code: "KeyA", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  expect(accelerator.value).toBe("Control+Shift+A");
+  expect(hint.textContent).not.toContain("全选");
 });
 
 it("lets Tab navigate and Enter submit the shortcut form without capturing them", async () => {

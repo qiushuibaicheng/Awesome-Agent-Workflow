@@ -131,6 +131,23 @@ function hint(text) { $("shortcut-hint").textContent = text || shortcutHint; }
  * 就看到"这个键不能作为主键"，以为 Alt+Space 不被允许。
  */
 const modifierKeys = new Set(["Alt", "AltGraph", "Control", "Shift", "Meta"]);
+/**
+ * Ctrl + 这些字母在各家应用里几乎都是固定含义。它们能被注册成全局热键
+ * （实测 Ctrl+A 注册返回 true），代价是那些操作会从所有窗口里被抢走：
+ * 用户在浏览器里按 Ctrl+A 得到的是唤起 AAW，而不是全选。不禁止，但要先说清楚。
+ */
+const editingKeys = {
+  A: "全选", C: "复制", V: "粘贴", X: "剪切", Z: "撤销", Y: "重做",
+  S: "保存", F: "查找", P: "打印", W: "关闭窗口", N: "新建", T: "新标签页",
+};
+function conflictHint(value) {
+  const parts = value.split("+");
+  const key = parts.pop();
+  if (parts.length !== 1 || parts[0] !== "Control") return "";
+  const action = editingKeys[key];
+  if (!action) return "";
+  return `${value.replace("Control", "Ctrl")} 在大多数应用里是「${action}」；设为全局唤起键后，那些地方会变成打开 AAW。想避开就再加一个 Shift 或 Alt。`;
+}
 /** 把 KeyboardEvent.code 映射成 Electron accelerator 的主键；返回空串表示不能当主键。 */
 function acceleratorKey(code) {
   if (code === "Space") return "Space";
@@ -215,7 +232,14 @@ async function saveShortcut(value) {
     shortcutState(result);
     hint("");
     status("快捷键已保存，即刻生效。");
-  } catch (error) { status(error.message); }
+  } catch (error) {
+    // 失败时把输入框退回仍然生效的那组。留着新值只会让人以为已经改好了——
+    // 之前就是这样：看起来存了 Ctrl+A，实际按下去没反应。
+    acceleratorDirty = false;
+    $("accelerator").value = savedShortcut;
+    hint("");
+    status(error.message);
+  }
 }
 query.addEventListener("input", () => { showAll = false; status(""); render(); });
 $("all").addEventListener("click", () => { showAll = true; render(); query.focus(); });
@@ -238,7 +262,7 @@ $("accelerator").addEventListener("keydown", (event) => {
   if (next.error) { hint(next.error); return; }
   $("accelerator").value = next.value;
   acceleratorDirty = true;
-  hint("");
+  hint(conflictHint(next.value));
 });
 $("settings-close").addEventListener("click", () => { settings(false); status(""); });
 $("close").addEventListener("click", () => window.launcher.hide());
