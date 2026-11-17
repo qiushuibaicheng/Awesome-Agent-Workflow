@@ -267,3 +267,9 @@ tools-runtime/tool-storage.mjs 的 ownerSegment 使用相同替换规则，因�
 runtime/io.ts 的 memoryToolIO.writeTextFile 向上补齐父目录时，循环必须比较当前子目录和父目录；不能一直和原文件路径比较。原实现在相对路径到达 tools 后，parentOf(tools)仍是tools，循环不终止。已在独立Node进程中复现2秒超时，修复后项目创建/改名和工具升级回滚的相关18项测试通过。
 
 新增 tests/plugins/tools/io.test.ts 覆盖相对工具路径、目录枚举、裸文件名与Windows/POSIX绝对路径终止。本修复仅影响内存适配器（测试与无宿主预览），不改变真实宿主文件写入；账号目录冲突仍是独立未解决问题。
+
+## 2026-11-17 18:26 修复：异步版本回退跨账号执行
+
+src/plugins/tools/index.ts 的 rollback 在首次await之前记住发起用户；备份队列等待结束和备份读取结束后，分别检查当前用户是否仍相同。切换/退出登录即抛出可展示的取消提示，不安装任何备份。工坊已有错误处理会显示此提示。
+
+tests/plugins/tools/tools.test.ts 覆盖等待队列和读取文件两个时间窗口，确认两个账号的同名工具均保持原版本。修复前可复现A发起回退、立即切B，B从2.1.0错误回退到2.0.0。本项不改变账号目录编码，不能替代14:28记录的目录碰撞修复。

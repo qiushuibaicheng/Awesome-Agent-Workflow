@@ -1,7 +1,8 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { Context } from "cordis";
 import { createTestDesktopRuntime } from "../../helpers/desktopRuntime.ts";
 import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
+import * as backupRuntime from "../../../src/plugins/tools/runtime/backup.ts";
 
 const makeTool = (id: string) => parseToolPackage(JSON.stringify({
   schemaVersion: 1,
@@ -86,6 +87,51 @@ it("keeps the previous version on disk so a bad upgrade can be undone", async ()
     const forward = await tools.rollback("r");
     expect(forward).toMatchObject({ version: "1.1.0", previousVersion: "1.0.0" });
   } finally {
+    await runtime.shutdown();
+  }
+});
+
+it.each(["queue", "read"])("does not roll back another account when login changes during backup %s", async (phase) => {
+  let context: Context | undefined;
+  const runtime = createTestDesktopRuntime(
+    { attachPreloading: () => () => {}, close: () => Promise.resolve() },
+    undefined,
+    (value) => { context = value; },
+  );
+  try {
+    await runtime.ready;
+    if (!context) throw new Error("Missing desktop context");
+    const { account, tools } = context;
+    const first = { name: "First", employeeId: `rollback-switch-first-${phase}` };
+    const second = { name: "Second", employeeId: `rollback-switch-second-${phase}` };
+    account.loginAsDev(first);
+    tools.install(makeTool("shared-id"));
+    tools.install({ ...makeTool("shared-id"), version: "1.1.0" }, true);
+    account.loginAsDev(second);
+    tools.install({ ...makeTool("shared-id"), version: "2.0.0" });
+    tools.install({ ...makeTool("shared-id"), version: "2.1.0" }, true);
+    account.loginAsDev(first);
+    let started = () => {};
+    let finish = () => {};
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    const release = new Promise<void>((resolve) => { finish = resolve; });
+    const originalRead = backupRuntime.readToolBackup;
+    if (phase === "read") vi.spyOn(backupRuntime, "readToolBackup").mockImplementationOnce(async (...args) => {
+      const value = await originalRead(...args);
+      started();
+      await release;
+      return value;
+    });
+    const pending = tools.rollback("shared-id");
+    if (phase === "read") await reading;
+    account.loginAsDev(second);
+    finish();
+    await expect(pending).rejects.toThrow("账号");
+    expect(tools.state.getState()[0]?.package.version).toBe("2.1.0");
+    account.loginAsDev(first);
+    expect(tools.state.getState()[0]?.package.version).toBe("1.1.0");
+  } finally {
+    vi.restoreAllMocks();
     await runtime.shutdown();
   }
 });

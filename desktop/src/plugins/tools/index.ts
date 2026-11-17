@@ -145,10 +145,15 @@ export function apply(ctx: Context): void {
       return outcome;
     },
     async rollback(id) {
-      await backups.settled();
       const owner = account.getState().currentUser?.id;
       if (!owner) throw new Error("请先登录 AAW。");
+      const assertOwner = () => {
+        if (account.getState().currentUser?.id !== owner) throw new Error("账号已切换，已取消版本回退。请在当前账号重新操作。");
+      };
+      await backups.settled();
+      assertOwner();
       const backup = await readToolBackup(io, owner, id);
+      assertOwner();
       if (!backup) return undefined;
       // 回滚本身也是一次安装：被换下来的那一版会自动成为新的"上一版"，
       // 所以点错了还能再点一次换回去。
