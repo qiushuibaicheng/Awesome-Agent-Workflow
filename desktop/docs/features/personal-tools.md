@@ -10,7 +10,7 @@
 
 ZIP 压缩前后均限制 1 MB，最多 72 个条目；转换后的工具包总大小仍限制 512 KB。项目必须有唯一的 `manifest.json` 和同目录的 `index.html`，可以有一层外部目录。附加源码只支持 UTF-8 文本，最多 64 个文件；拒绝路径穿越、重复路径和 Windows 设备路径。请勿打包 `node_modules`、`.git`、`dist` 或凭据。宿主不会执行导入包中的安装和构建脚本。
 
-按 **Alt + 空格** 呼出 AAW 启动器。小窗采用搜索栏、「最近使用」和「已固定」的图标网格布局，提供「全部功能」，支持方向键选择、回车打开、Esc 返回或隐藏。鼠标移到入口上点击星标可固定或取消固定。点击右上角 AAW 图标或底部快捷键，输入自定义组合键并保存，即刻生效且重启保留；冲突时会保留原快捷键，也可以从系统托盘打开小窗。快捷键偏好保存在本机，当前版本不再使用 `AAW_TOOLS_SHORTCUT` 环境变量。
+按 **Alt + 空格** 呼出 AAW 启动器。小窗采用搜索栏、「最近使用」和「已固定」的图标网格布局，提供「全部功能」，支持方向键选择、回车打开、Esc 返回或隐藏。鼠标移到入口上点击星标可固定或取消固定。点击右上角 AAW 图标或底部快捷键，输入自定义组合键并保存，即刻生效且重启保留；冲突时会保留原快捷键，也可以从系统托盘打开小窗。设置页打开期间全局热键会临时让出（窗口隐藏时自动收回），否则用户想把快捷键改回 Alt+Space 时，按下的第一下会被自己正在生效的热键抢先关掉窗口，看起来就是"改不回去"。快捷键偏好保存在本机，当前版本不再使用 `AAW_TOOLS_SHORTCUT` 环境变量。
 
 小窗和 CLI 读取 AAW Desktop 当前登录账号的本地安装清单。小窗是统一功能入口，已经接入个人工具、AAW 工作流和工具中心。没有当前项目时优先使用最近项目，完全没有可用目录时弹出项目选择。打开 AAW 时没有会话则建立会话草稿并尝试连接 agent，随后打开工作流；agent 暂时不可用时保留草稿。工具中心不额外创建会话。AAW、工具中心等固定内置入口不记录最近使用，旧记录也不再显示；个人工具仍按最近成功打开排序。架构及扩展约定见 [统一启动器架构](unified-launcher.md)。
 
@@ -99,6 +99,6 @@ npm --silent run tools -- describe uppercase
 
 在 `desktop` 目录执行 `npm run tauri dev` 构建 Electron 工具宿主并启动原生开发版。已有调试构建时，先运行 `npm run tools:build`，再启动 Vite（`npm run dev`）和 `src-tauri/target/debug/desktop.exe`。上一次没退干净导致 `desktop.exe`/1420 被占、`tauri dev` 起不来时，先跑 `npm run dev:doctor`（见[开发运行与 ACP 宿主](../engineering/development.md)）。单独调试小窗可用 `npm run tools:launcher`。改动 Electron 源码后重新构建并重启宿主，Windows 实机 CLI 冒烟测试使用 `npm run tools:test`。
 
-启动器回归检查：构建后运行 `node --test scripts/test-launcher.mjs`；Windows Electron 界面验证运行 `node scripts/test-launcher-ui.mjs`。后者使用临时账号数据与独立 profile，覆盖搜索、固定、长列表、小尺寸布局和快捷键冲突。
+启动器回归检查：构建后运行 `node --test scripts/test-launcher.mjs`；Windows Electron 界面验证运行 `node scripts/test-launcher-ui.mjs`。后者使用临时账号数据与独立 profile，覆盖搜索、固定、长列表、小尺寸布局和快捷键冲突。改动快捷键捕获或全局热键让位逻辑后，再跑一次 `npm run tools:verify-shortcut`：它用 Playwright 驱动真实宿主，把快捷键从 `Ctrl+K` 改回 `Alt+Space`，同时断言窗口没有被自己的热键关掉。
 
 维护者可先阅读 [代码地图与 Agent 交接](plugin-platform-handoff.md)，区分源码、构建产物和账号数据目录。

@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("launcher", {
   hide: () => ipcRenderer.send("tools:hide"),
   pin: (id, pinned) => ipcRenderer.invoke("launcher:pin", id, pinned),
   shortcut: (value) => ipcRenderer.invoke("launcher:shortcut", value),
+  capture: (active) => ipcRenderer.invoke("launcher:capture", active === true),
+  onShortcutPressed: (callback) => ipcRenderer.on("launcher:shortcut-pressed", (_event, value) => callback(value)),
   theme: () => ipcRenderer.invoke("launcher:theme"),
   onRefresh: (callback) => ipcRenderer.on("tools:refresh", () => callback()),
 });

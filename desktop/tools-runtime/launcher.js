@@ -123,6 +123,14 @@ function render() {
 const shortcutHint = "点击输入框后直接按组合键（需含 Ctrl / Alt / Shift 之一），例如 Ctrl+Shift+Space。";
 let savedShortcut = "Alt+Space";
 function hint(text) { $("shortcut-hint").textContent = text || shortcutHint; }
+/**
+ * 修饰键单独按下时必须忽略。
+ *
+ * 用户想录 Alt+Space，先按下的是 Alt——这一下 `event.code` 是 `AltLeft`，
+ * 既不可能成为主键，也不该报错。以前这里照常走校验，于是用户刚碰到 Alt
+ * 就看到"这个键不能作为主键"，以为 Alt+Space 不被允许。
+ */
+const modifierKeys = new Set(["Alt", "AltGraph", "Control", "Shift", "Meta"]);
 /** 把 KeyboardEvent.code 映射成 Electron accelerator 的主键；返回空串表示不能当主键。 */
 function acceleratorKey(code) {
   if (code === "Space") return "Space";
@@ -165,7 +173,7 @@ async function refresh(reset = true) {
     // reset 只重置"浏览态"（搜索词、展开、全部功能），不重置设置页与草稿。
     if (reset) { query.value = ""; showAll = false; expanded = false; status(""); }
     render();
-    if (settingsOpen) $("accelerator").focus();
+    if (settingsOpen) { $("accelerator").focus(); releaseGlobalShortcut(true); }
     else if (reset) query.focus();
   } catch (error) { status(error.message); }
 }
@@ -179,7 +187,25 @@ function settings(visible) {
     hint("");
     $("accelerator").focus();
     $("accelerator").select();
-  } else query.focus();
+    releaseGlobalShortcut(true);
+  } else {
+    releaseGlobalShortcut(false);
+    query.focus();
+  }
+}
+/**
+ * 录制期间把全局热键让出来。
+ *
+ * 不让的话，用户按下的第一下往往就是当前生效的那组键（最常见就是 Alt+Space）：
+ * 全局热键抢先一步把窗口关掉，用户看到的是界面消失，而不是录进输入框。
+ * 窗口被隐藏时主进程会兜底恢复，所以这里只跟设置页的开合走。
+ */
+function releaseGlobalShortcut(active) {
+  try {
+    const result = window.launcher.capture?.(active);
+    // 通知失败不该冒成未处理的 rejection：热键由主进程在 hide 时兜底恢复。
+    if (result?.catch) result.catch(() => {});
+  } catch { /* 旧版 preload 没有这个方法，录制仍然可用 */ }
 }
 async function saveShortcut(value) {
   if (!validShortcut(value)) { hint("请先按下要用的组合键（需含 Ctrl / Alt / Shift 之一）。"); return; }
@@ -201,6 +227,8 @@ $("accelerator").addEventListener("input", () => { acceleratorDirty = true; });
 $("accelerator").addEventListener("keydown", (event) => {
   if (!settingsOpen) return;
   if (event.key === "Escape") { acceleratorDirty = false; $("accelerator").value = savedShortcut; hint(""); return; }
+  // 只按了修饰键：这是组合键的第一步，等主键按下来再判断。
+  if (modifierKeys.has(event.key)) return;
   // Preserve focus navigation and form submission instead of trapping the
   // keyboard inside this read-only shortcut capture field.
   const navigation = !event.ctrlKey && !event.altKey && !event.metaKey;
@@ -242,4 +270,12 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", render);
 window.launcher.onRefresh(() => void refresh());
+// Alt+Space 是 Windows 的系统菜单键，页面的 keydown 收不到那一下 Space；
+// 主进程接住之后把组合键回送过来，用户才能把快捷键改回默认那一组。
+window.launcher.onShortcutPressed?.((value) => {
+  if (!settingsOpen || typeof value !== "string") return;
+  $("accelerator").value = value;
+  acceleratorDirty = true;
+  hint("");
+});
 void refresh();

@@ -114,6 +114,19 @@ function installLauncher(root, isolated) {
     openTool: (tool, settings) => loadTool(isolated, tool, true, settings), openDesktop: createDesktopBridge(),
   });
   const shortcuts = createShortcutController(globalShortcut, store, () => showLauncher(true));
+  /**
+   * 设置页打开期间页面在录快捷键，这段时间必须把全局热键让出来：
+   * 用户按下的第一下往往就是当前生效的那组，不让就会被自己的快捷键关掉窗口。
+   * 恢复走窗口事件兜底（hide / 关闭），不能只依赖渲染进程发来的通知——
+   * 它一旦没发出去，用户的全局热键就永久丢了。
+   */
+  let capturing = false;
+  function setCapture(active) {
+    if (active === capturing) return;
+    capturing = active;
+    if (active) shortcuts.pause();
+    else shortcuts.resume();
+  }
 
   async function open(id) {
     await catalog.open(id);
@@ -137,7 +150,17 @@ function installLauncher(root, isolated) {
       });
       launcher.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       launcher.webContents.on("will-navigate", (event) => event.preventDefault());
-      launcher.on("blur", () => launcher?.hide());
+      // Windows 把 Alt+Space 当窗口系统菜单键，页面的 keydown 根本收不到那一下
+      // Space。录制时在这里接住再回送，用户才能把快捷键改回默认的 Alt+Space。
+      launcher.webContents.on("before-input-event", (event, input) => {
+        if (!capturing || input.type !== "keyDown") return;
+        if (!input.alt || input.code !== "Space") return;
+        event.preventDefault();
+        launcher?.webContents.send("launcher:shortcut-pressed", "Alt+Space");
+      });
+      // 录制时不因失焦隐藏：系统菜单会抢走焦点，隐藏等于把用户正在改的东西弄丢。
+      launcher.on("blur", () => { if (!capturing) launcher?.hide(); });
+      launcher.on("hide", () => setCapture(false));
       launcher.on("closed", () => { launcher = undefined; });
       launcher.once("ready-to-show", () => showLauncher());
       void launcher.loadFile(launcherFile).catch((error) => dialog.showErrorBox("AAW 启动器", error.message));
@@ -195,6 +218,11 @@ function installLauncher(root, isolated) {
     shortcuts.change(value);
     updateTray();
     return shortcuts.state;
+  });
+  ipcMain.handle("launcher:capture", (event, active) => {
+    verifySender(event);
+    setCapture(active === true);
+    return capturing;
   });
 
   const shortcutStart = shortcuts.start();

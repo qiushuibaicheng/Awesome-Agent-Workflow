@@ -26,6 +26,7 @@ function boot() {
   document.body.innerHTML = html.slice(html.indexOf("<body>") + 6, html.indexOf("</body>")).replace(/<script[\s\S]*?<\/script>/g, "");
   let wake = () => {};
   let resolveOpen = () => {};
+  let shortcutPressed: (value: string) => void = () => {};
   const launcher = {
     entries: vi.fn(() => Promise.resolve({ entries, signedIn: true, shortcut: "Alt+Space", shortcutReady: true })),
     // 默认永不 resolve：用来观察"打开中"的中间态。
@@ -33,13 +34,20 @@ function boot() {
     hide: vi.fn(),
     pin: vi.fn(async () => {}),
     shortcut: vi.fn(() => Promise.resolve({ shortcut: "Alt+Space", shortcutReady: true })),
+    capture: vi.fn((active: boolean) => Promise.resolve(active)),
+    onShortcutPressed: (callback: (value: string) => void) => { shortcutPressed = callback; },
     onRefresh: (callback: () => void) => { wake = callback; },
   };
   (window as unknown as { launcher: typeof launcher }).launcher = launcher;
   // 启动器是普通 <script>，测试必须原样执行它（没有可 import 的模块形态）。
   // eslint-disable-next-line @typescript-eslint/no-implied-eval -- 执行被测静态脚本
   (new Function(read("launcher.js")) as () => void)();
-  return { launcher, wake: () => wake(), finishOpen: () => resolveOpen() };
+  return {
+    launcher,
+    wake: () => wake(),
+    finishOpen: () => resolveOpen(),
+    pressShortcut: (value: string) => shortcutPressed(value),
+  };
 }
 
 const items = () => [...document.querySelectorAll<HTMLElement>("#results .item")];
@@ -181,3 +189,60 @@ it("lets Tab navigate and Enter submit the shortcut form without capturing them"
   }
   expect(document.getElementById("shortcut-hint")!.textContent).not.toContain("不能作为主键");
 });
+
+/**
+ * 用户想从别的组合键改回 Alt+Space 时踩到的两个坑，都要锁住：
+ * 按下 Alt 的那一下就报"这个键不能作为主键"，以及窗口被自己的全局热键关掉。
+ */
+it("does not scold the user for pressing a modifier alone before the main key", async () => {
+  const { launcher } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  document.getElementById("settings-open")!.click();
+
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+  const hint = document.getElementById("shortcut-hint")!;
+  const press = (init: KeyboardEventInit) => accelerator.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+
+  // 草稿先停在别的组合键上，模拟"已经改成别的、又想改回去"。
+  press({ key: "K", code: "KeyK", ctrlKey: true });
+  expect(accelerator.value).toBe("Control+K");
+
+  // 只按 Alt：这是组合键的第一步，既不该报错也不该冲掉草稿。
+  press({ key: "Alt", code: "AltLeft", altKey: true });
+  expect(hint.textContent).not.toContain("不能作为主键");
+  expect(accelerator.value).toBe("Control+K");
+
+  // 接着按下 Space，组合才成立。
+  press({ key: " ", code: "Space", altKey: true });
+  expect(accelerator.value).toBe("Alt+Space");
+});
+
+it("releases the global shortcut while the settings page is open, and takes it back after", async () => {
+  const { launcher, wake } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+
+  document.getElementById("shortcut")!.click();
+  expect(launcher.capture).toHaveBeenLastCalledWith(true);
+  document.getElementById("settings-close")!.click();
+  expect(launcher.capture).toHaveBeenLastCalledWith(false);
+
+  // 隐藏再唤起时设置页仍在，热键必须重新让出来，否则下一次按 Alt+Space 会直接关上窗口。
+  document.getElementById("settings-open")!.click();
+  launcher.capture.mockClear();
+  wake();
+  await vi.waitFor(() => expect(launcher.capture).toHaveBeenCalledWith(true));
+});
+
+it("accepts the Alt+Space the main process catches, since Windows swallows it", async () => {
+  const { launcher, pressShortcut } = boot();
+  await vi.waitFor(() => expect(launcher.entries).toHaveBeenCalled());
+  document.getElementById("settings-open")!.click();
+  const accelerator = document.getElementById("accelerator") as HTMLInputElement;
+
+  pressShortcut("Alt+Space");
+  expect(accelerator.value).toBe("Alt+Space");
+
+  document.getElementById("shortcut-form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+  await vi.waitFor(() => expect(launcher.shortcut).toHaveBeenCalledWith("Alt+Space"));
+});
+

@@ -20,6 +20,7 @@
     "tools": "node scripts/tools-cli.mjs",
     "tools:launcher": "node scripts/tools-cli.mjs --launcher",
     "tools:test": "node scripts/test-tools-runtime.mjs",
+    "tools:verify-shortcut": "node scripts/verify-launcher-shortcut.cjs",
     "acp:smoke": "tsx scripts/acp-smoke.ts",
     "workflow:build": "node scripts/build-workflow-service.mjs",
     "workflow:build:debug": "node scripts/build-workflow-service.mjs --debug"

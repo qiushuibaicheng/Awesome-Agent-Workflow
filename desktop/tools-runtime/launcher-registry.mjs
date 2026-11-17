@@ -83,63 +83,6 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
   };
 }
 
-export function normalizeShortcut(value) {
-  if (typeof value !== "string" || value.length > 80) throw new Error("请输入有效的快捷键。");
-  const parts = value.trim().split("+");
-  const key = parts.pop();
-  const aliases = { ctrl: "Control", control: "Control", alt: "Alt", shift: "Shift", command: "Command", cmd: "Command", commandorcontrol: "CommandOrControl" };
-  const modifiers = parts.map((part) => aliases[part.toLowerCase()]);
-  if (!modifiers.length || modifiers.some((part) => !part) || new Set(modifiers).size !== modifiers.length || !/^(Space|[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4]))$/i.test(key ?? ""))
-    throw new Error("请使用 Alt、Ctrl 或 Shift 加空格、字母、数字或功能键，例如 Alt+Space。");
-  return [...modifiers, key.toLowerCase() === "space" ? "Space" : key.toUpperCase()].join("+");
-}
 
-/**
- * 快捷键都注册不上时的备选：按"离 Alt+Space 越近越优先"的顺序试。
- * 只在用户自己存的那一组失败时才用，不会悄悄改掉一个还能用的配置。
- */
-const fallbackShortcuts = ["Ctrl+Alt+Space", "Ctrl+Shift+Space", "Alt+Shift+Space"];
-
-export function createShortcutController(api, store, callback) {
-  let current = "Alt+Space";
-  let ready = false;
-  return {
-    get state() { return { shortcut: current, shortcutReady: ready }; },
-    /**
-     * 启动时注册。返回 `{ ok, fallbackFrom? }`：拿不到任何快捷键时调用方要能
-     * 主动告诉用户（系统通知），而不是只靠托盘 tooltip 等人去看。
-     */
-    start() {
-      let configured;
-      try { configured = normalizeShortcut(store.read().shortcut ?? "Alt+Space"); }
-      catch { configured = "Alt+Space"; }
-      if (api.register(configured, callback)) {
-        current = configured;
-        ready = true;
-        return { ok: true };
-      }
-      for (const candidate of fallbackShortcuts) {
-        if (candidate === configured) continue;
-        if (!api.register(candidate, callback)) continue;
-        current = candidate;
-        ready = true;
-        // 记下来，下次启动直接用能用的那组，不再反复撞墙。
-        try { store.update({ shortcut: candidate }); } catch { /* 写不进去就本次生效 */ }
-        return { ok: true, fallbackFrom: configured };
-      }
-      current = configured;
-      ready = false;
-      return { ok: false, occupied: configured };
-    },
-    change(value) {
-      const next = normalizeShortcut(value);
-      if (next === current && ready) return;
-      if (!api.register(next, callback)) throw new Error("此快捷键被占用，原快捷键已保留。请换一组按键。");
-      try { store.update({ shortcut: next }); }
-      catch (error) { api.unregister(next); throw error; }
-      if (ready && current !== next) api.unregister(current);
-      current = next;
-      ready = true;
-    },
-  };
-}
+// 快捷键控制器搬到 shortcut.mjs（不依赖 catalog，便于单测）；这里保持原有导出面。
+export { normalizeShortcut, createShortcutController } from "./shortcut.mjs";
