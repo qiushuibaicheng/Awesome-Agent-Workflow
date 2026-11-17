@@ -97,21 +97,32 @@ for (const width of [360, 1100]) {
   });
 }
 
+test("loading example tools fills the library", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 850 });
+  await page.goto("/tests/visual/toolsFixture.html?empty");
+  await page.getByRole("button", { name: "载入示例工具", exact: true }).click();
+  const rows = page.getByRole("list", { name: "已安装工具" });
+  await expect(rows.getByText("JSON 格式化")).toBeVisible();
+  await expect(rows.getByText("随手记")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "node_modules/.cache/tools-examples-1100.png" });
+});
+
 for (const width of [360, 740]) {
   test(`stalled project hands the work back to the user at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 720 });
     await page.goto("/tests/visual/toolsFixture.html?stalled");
     await page.getByRole("button", { name: /开发工具/ }).click();
-    await expect(page.getByText("打开目录自己改", { exact: true })).toBeVisible();
-    const openDir = page.getByRole("button", { name: "打开项目目录", exact: true });
+    await expect(page.getByText("按这个路径自己改", { exact: true })).toBeVisible();
     const recheck = page.getByRole("button", { name: "我改完了，重新校验", exact: true });
-    await expect(openDir).toBeInViewport();
     await expect(recheck).toBeInViewport();
+    // 路径不再是按钮：完整值在 data-hint 里，窄栏省略但不丢信息。
+    await expect(page.locator(".build-stalled .tool-path code")).toHaveAttribute("data-hint", "E:/AAW/tools/projects/u1/json-table");
     // 窄面板下"说明 + 两个按钮"不能撑出横向滚动条。
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `node_modules/.cache/tools-stalled-${width}.png` });
-    // 列表行里的路径也是入口：滚到底确认它没被挤成半行。
-    const rowPath = page.getByRole("list", { name: "工具项目" }).getByRole("button", { name: "打开项目目录：E:/AAW/tools/projects/u1/json-table" });
+    // 列表行里的路径也是文本：滚到底确认它没被挤成半行。
+    const rowPath = page.getByRole("list", { name: "工具项目" }).locator(".tool-path code").first();
     await rowPath.scrollIntoViewIfNeeded();
     await expect(rowPath).toBeInViewport();
     await page.screenshot({ path: `node_modules/.cache/tools-stalled-list-${width}.png` });

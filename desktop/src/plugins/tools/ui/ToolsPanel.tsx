@@ -8,6 +8,7 @@ import { SquareTerminalIcon, WrenchIcon } from "../../../shared/ui/icons.tsx";
 import { useHeaderMenu } from "../../../shared/ui/useHeaderMenu.ts";
 import type { HostService } from "../../host/service.ts";
 import type { ProjectService } from "../../project/service.ts";
+import { exampleTools } from "../runtime/examples.ts";
 import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
 import { migrateLegacyTools } from "../runtime/project.ts";
 import { ActiveProjectCard, NewToolForm } from "./ToolBuilder.tsx";
@@ -38,7 +39,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
  * 也没说 AI 会做哪些事，用户站在空页面前不知道该点哪。这里给出三步预期和
  * 一个具体例子，主按钮直接去「开发工具」——不再和页签摆两个同义入口。
  */
-function EmptyLibrary({ onCreate, onImport }: { onCreate: () => void; onImport: () => void }) {
+function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void; onImport: () => void; onExamples: () => void }) {
   return <section className="tools-empty" aria-label="还没有工具">
     <div className="tools-empty-hero">
       <span className="tools-empty-glow" aria-hidden="true" />
@@ -54,8 +55,9 @@ function EmptyLibrary({ onCreate, onImport }: { onCreate: () => void; onImport: 
     <div className="tools-empty-actions">
       <button type="button" className={`${btnPrimary} tools-empty-primary`} onClick={onCreate}>开始做工具 <span aria-hidden="true">→</span></button>
       <button type="button" className={btnSecondary} onClick={onImport}>导入 ZIP</button>
+      <button type="button" className={`${btnGhost} tools-empty-examples`} onClick={onExamples}>载入示例工具</button>
     </div>
-    <p className="tools-empty-foot">也可以点顶部的「开发指导 ↗」看完整的开发约定，或者把同事给的工具包直接导进来。</p>
+    <p className="tools-empty-foot">想先看效果？点「载入示例工具」装进两个可打开的示例，随时能卸载；「开发指导 ↗」里有完整约定。</p>
   </section>;
 }
 
@@ -139,6 +141,19 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
 
   function installPackage(tool: ToolPackage) {
     setFeedback({ text: describeInstall(service.install(tool, true), tool.name) });
+  }
+
+  /** 示例工具走和导入 ZIP 完全一样的 install 路径，不搞特殊数据通道。 */
+  function installExamples() {
+    try {
+      const names = exampleTools.map((tool) => {
+        service.install(tool, true);
+        return tool.name;
+      });
+      setFeedback({ text: `已载入 ${names.length} 个示例工具：${names.join("、")}。在「已安装」里可以打开、改设置或卸载；卸载完空状态里还能再载入一次。` });
+    } catch (error) {
+      setFeedback({ text: `载入示例失败：${errorText(error)}`, error: true });
+    }
   }
 
   async function importFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -340,6 +355,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
             <EmptyLibrary
               onCreate={() => setView({ kind: "projects" })}
               onImport={() => picker.current?.click()}
+              onExamples={installExamples}
             />
           )}
           {tools.length > 0 && <label className="tools-search"><span aria-hidden="true">⌕</span><input aria-label="搜索已安装工具" placeholder="搜索你的工具…" value={search} onChange={(event) => setSearch(event.target.value)} /><span>{tools.length}</span></label>}

@@ -71,7 +71,7 @@ export interface WorkshopSnapshot {
   readonly running: boolean;
   readonly projects: readonly ToolProjectSummary[];
   readonly projectsLoading: boolean;
-  /** 默认项目根目录（AAW 数据目录 / tools / projects），让用户点开看一眼。 */
+  /** 默认项目根目录（AAW 数据目录 / tools / projects），只用于展示。 */
   readonly projectsRoot: string | null;
   /** 一键写入手册的结果（成功/失败都留一条，避免按钮点了没反应）。 */
   readonly guideNote: WorkshopNote | null;
@@ -90,10 +90,6 @@ export interface WorkshopService {
   rollback(id: string): Promise<WorkshopNote>;
   /** 改显示名 / 改目录名（= 改 id）。 */
   rename(dir: string, input: { readonly name?: string; readonly id?: string }): Promise<WorkshopNote>;
-  /** 打开项目目录（文件管理器）。目录不在了就给一句明确的话，而不是静默失败。 */
-  openDir(dir?: string): Promise<void>;
-  /** 打开默认项目根目录：用户看到"默认位置"就该能点开它。 */
-  openProjectsRoot(): Promise<void>;
   /** 打开一个已有工具项目（继续开发：新开一条会话）。 */
   resume(dir: string): Promise<void>;
   /** 选中一个已有项目作为"当前项目"（只校验，不切视图）。 */
@@ -418,51 +414,8 @@ export function createWorkshop(deps: {
       }
     },
 
-    async openDir(dir) {
-      const target = dir ?? store.getState().project?.dir;
-      if (!target) return;
-      if (!host.isNative()) {
-        patch({ note: { text: "浏览器预览模式打不开本地目录，请在桌面版里打开。", error: true } });
-        return;
-      }
-      try {
-        // 目录可能已经被删/移走：那种情况下系统的打开动作要么报错要么静默，
-        // 都不如自己先说清楚。
-        if (!(await io.pathExists(target))) {
-          patch({ note: { text: `项目目录不在了：${target}。可能被移动或删除。`, error: true } });
-          return;
-        }
-        await host.files.openInFileManager(target, "directory");
-      } catch (error) {
-        patch({ note: { text: `打不开目录：${errorText(error)}`, error: true } });
-      }
-    },
-
-    async openProjectsRoot() {
-      if (!host.isNative()) {
-        patch({ note: { text: "浏览器预览模式打不开本地目录，请在桌面版里打开。", error: true } });
-        return;
-      }
-      const root = store.getState().projectsRoot ?? await io.userDataDir("tools", "projects");
-      try {
-        if (await io.pathExists(root)) {
-          await host.files.openInFileManager(root, "directory");
-          return;
-        }
-        // 一个项目都没建时根目录确实不存在：退到最近的已存在祖先，并说清它会在哪出现。
-        // 只弹一句"不存在"等于让按钮点了没反应。
-        const parent = root.replace(/[\\/][^\\/]+$/, "");
-        if (parent && parent !== root && await io.pathExists(parent)) {
-          patch({ note: { text: `还没有工具项目；根目录会在第一次「开始做」后出现：${root}` } });
-          await host.files.openInFileManager(parent, "directory");
-          return;
-        }
-        patch({ note: { text: `还没有工具项目，根目录也还没创建：${root}`, error: true } });
-      } catch (error) {
-        patch({ note: { text: `打不开目录：${errorText(error)}`, error: true } });
-      }
-    },
-
+    // 目录不再由工坊打开：路径在 UI 上以文本 + 复制呈现（ToolPath），
+    // 不需要 host.files.openInFileManager，也就不需要为它申请 opener 权限。
     async resume(dir) {
       await select(dir);
       patch({ note: null });

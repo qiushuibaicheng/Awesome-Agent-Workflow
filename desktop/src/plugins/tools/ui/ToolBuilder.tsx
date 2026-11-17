@@ -3,6 +3,7 @@ import { btnGhost, btnPrimary, btnSecondary, DangerButton } from "../../../share
 import { CopyButton } from "../../../shared/ui/CopyButton.tsx";
 import { describeViolations } from "../runtime/rules.ts";
 import type { ToolViolation } from "../types.ts";
+import { ToolPath } from "./ToolPath.tsx";
 import type { WorkshopService } from "./workshop.ts";
 
 export function ViolationList({ problems }: { problems: readonly ToolViolation[] }) {
@@ -44,18 +45,9 @@ export function NewToolForm({ workshop, available }: {
         disabled={!available || busy}
       />
       <div className="build-new-row">
-        {/* 目录要能点开：之前只写着"默认位置（AAW 数据目录 / tools / projects）"，
-            而用户没有别的入口打开它——AI 写坏一个文件时连去哪看都不知道。 */}
-        <span className="build-target">目录
-          {target
-            ? <button
-              type="button"
-              className="build-path"
-              data-hint="在文件管理器中打开"
-              aria-label={`打开目录：${target}`}
-              onClick={() => void (parent ? workshop.openDir(parent) : workshop.openProjectsRoot())}
-            >{target}</button>
-            : <code>默认位置</code>}
+        {/* 目录只展示不打开：它是「源码会落在哪」的答案，完整路径可复制。 */}
+        <span className="build-target"><span className="build-target-label">目录</span>
+          {target ? <ToolPath path={target} compact /> : <code>默认位置</code>}
         </span>
         <button type="button" className={btnGhost} onClick={() => void workshop.chooseParent()} disabled={!available || busy}>选择目录</button>
         {parent && <button type="button" className={btnGhost} onClick={() => workshop.resetParent()} disabled={busy}>用默认</button>}
@@ -88,14 +80,8 @@ export function ActiveProjectCard({ workshop, onPreview }: {
     <div className="build-active-head">
       <div>
         <strong>{project.name}</strong>
-        {/* 路径就是"源码在哪"的答案：点一下就打开文件管理器，比再加一个按钮省地方。 */}
-        <button
-          type="button"
-          className="build-path"
-          data-hint="在文件管理器中打开"
-          aria-label={`打开项目目录：${project.dir}`}
-          onClick={() => void workshop.openDir(project.dir)}
-        >{project.dir}</button>
+        {/* 路径就是「源码在哪」的答案：文本 + 复制，不再是一个会失败的打开按钮。 */}
+        <ToolPath path={project.dir} label="源码位置" />
       </div>
       <span className={`build-status ${snapshot.running ? "is-running" : check?.ready ? "is-ready" : "is-pending"}`}>
         {snapshot.running ? "AI 正在写…" : check?.ready ? "可以验收" : "待修复"}
@@ -105,11 +91,11 @@ export function ActiveProjectCard({ workshop, onPreview }: {
     {snapshot.stalled && (
       <div className="build-stalled" role="group" aria-label="需要你接手">
         <div>
-          <strong>打开目录自己改</strong>
-          <p>目录里的 index.html 与 manifest.json 就是源码，直接改；改完点「我改完了，重新校验」。</p>
+          <strong>按这个路径自己改</strong>
+          <p>目录里的 index.html 与 manifest.json 就是源码，直接改；改完点「我改完了，重新校验」。路径右侧的按钮可复制完整路径。</p>
+          <ToolPath path={project.dir} label="源码目录" />
         </div>
         <div className="build-stalled-actions">
-          <button type="button" className={btnSecondary} onClick={() => void workshop.openDir()}>打开项目目录</button>
           <button type="button" className={btnPrimary} onClick={() => void workshop.verify()}>我改完了，重新校验</button>
         </div>
       </div>

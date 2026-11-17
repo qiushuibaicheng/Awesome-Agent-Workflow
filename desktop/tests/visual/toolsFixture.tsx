@@ -29,7 +29,13 @@ const entries: PersonalTool[] = params.has("empty") ? [] : [
 const state = createStore<readonly PersonalTool[]>(() => entries);
 const service: ToolsService = {
   state,
-  install: (tool) => ({ version: tool.version, updated: false, versionChanged: false }),
+  // 真的写进状态：视觉用例要能验证「载入示例工具」之后列表确实长出来。
+  install: (tool) => {
+    state.setState((current) => current.some((entry) => entry.package.id === tool.id)
+      ? current
+      : [...current, { package: tool, installedAt: Date.now() }], true);
+    return { version: tool.version, updated: false, versionChanged: false };
+  },
   rollback: () => Promise.resolve(undefined),
   setSource: () => {},
   open: () => {}, remove: () => {},

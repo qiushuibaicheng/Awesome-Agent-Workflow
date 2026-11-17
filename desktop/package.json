@@ -21,6 +21,7 @@
     "tools:launcher": "node scripts/tools-cli.mjs --launcher",
     "tools:test": "node scripts/test-tools-runtime.mjs",
     "tools:verify-shortcut": "node scripts/verify-launcher-shortcut.cjs",
+    "tools:seed": "node scripts/seed-example-tools.mjs",
     "tools:verify-channel": "node scripts/verify-tools-command-channel.cjs",
     "acp:smoke": "tsx scripts/acp-smoke.ts",
     "workflow:build": "node scripts/build-workflow-service.mjs",

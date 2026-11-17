@@ -20,7 +20,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     running: false,
     projects: [],
     projectsLoading: false,
-    projectsRoot: null,
+    projectsRoot: "E:/AAW/tools/projects",
     guideNote: null,
     ...overrides,
   }));
@@ -35,8 +35,6 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     install: () => Promise.resolve(false),
     rollback: () => Promise.resolve({ text: "没有可回退的版本。" }),
     rename: () => Promise.resolve({ text: "已改名。" }),
-    openDir: idle,
-    openProjectsRoot: idle,
     resume: idle,
     select: idle,
     refreshProjects: idle,

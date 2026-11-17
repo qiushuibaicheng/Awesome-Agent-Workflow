@@ -47,7 +47,7 @@
 
 ## 4. 目录打不开 + 重复入口
 
-- 报错 `opener.open_path not allowed. Permissions associated with this command: opener:allow-open-path`：`capabilities/default.json` 只有 `opener:default`，缺具体权限。补上 `opener:allow-open-path` 与 `opener:allow-reveal-item-in-dir`（两个标识符都在 `gen/schemas/desktop-schema.json` 里）。**注意 capability 是编译期烘焙进产物的，必须重新构建/打包桌面端才会生效。**
+- 报错 `opener.open_path not allowed`：当时 `capabilities/default.json` 只有 `opener:default`，本轮补过 `opener:allow-open-path` 与 `opener:allow-reveal-item-in-dir`。**第六轮已按产品决定整体回退**：目录改为可复制的文本展示，不再调用 openPath，也就不再需要任何权限层改动（见 `tools-center-round6.md`）。capability 是编译期烘焙进产物的，回退同样需要重新构建/打包桌面端才生效。
 - 「新建工具」顶部按钮和「制作工具」页签是同一个界面，两个入口只会让人以为点了会去别的地方：**删掉顶部按钮**，页签改名 **「开发工具」**。相关文案全项目统一（`guide.ts` 的「从这里开始」、安装冲突提示、迁移提示、预览提示、`aiPrompt.ts` 注释、`personal-tools.md`、两处测试断言）。空状态里的 CTA 改成「开始做工具 →」，仍指向同一个页签。
 
 ## 5. 空状态：一次讲清价值，而不是"什么都没有"
@@ -70,7 +70,7 @@
 
 ## 7. 已知限制 / 留给实机确认
 
-- **capability 不是热更新**：`opener:allow-open-path` 要重新构建或打包桌面端才生效；在旧产物上点目录仍会报权限错。
+- **capability 不是热更新**：权限的加入与回退都要重新构建或打包桌面端才生效；开发态重新跑一次 `tauri dev` 即可。（本轮加的两条权限已在第六轮回退。）
 - **全局热键是机器级独占资源**：本机若已经跑着一个 AAW（`--aaw-background` 常驻宿主），验证实例连默认 `Alt+Space` 都注册不上，更不可能再临时占住它。`tools:verify-shortcut` 现在会明确打印 `SKIP` 并把这两条从判定里剔除，**干净环境会自动恢复严格断言**，其余 9 条不受影响。上一轮已在无占用环境验证过该行为。
 - 命令通道断开时（宿主进程被杀 / 主窗口重启），Rust 会退回 spawn 转发，功能不丢但那一次会慢；Electron 侧 1.5 秒后自动重连。
 - 指导窗口复用时沿用打开那一刻的主题；换了主题后关掉重开即可（本轮没有预热该窗口，避免多占一个常驻渲染进程）。

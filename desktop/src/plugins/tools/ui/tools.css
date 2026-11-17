@@ -213,6 +213,7 @@
 .aaw-tools .build-new-row button { min-height: 30px; padding: 5px 12px; border-radius: 7px; font-size: 12px; }
 .aaw-tools .build-new-row > button[type="submit"] { margin-left: auto; }
 .aaw-tools .build-target { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--color-ink-subtle); }
+.aaw-tools .build-target-label { flex: none; white-space: nowrap; }
 .aaw-tools .build-target code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink); font-size: 11px; }
 .aaw-tools .build-hint { margin-top: 8px; font-size: 11px; color: var(--color-ink-subtle); }
 .aaw-tools .build-hint.is-error { color: var(--color-danger-ink); }
@@ -222,10 +223,17 @@
 .aaw-tools .build-active-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; }
 .aaw-tools .build-active-head > div { min-width: 0; flex: 1 1 200px; }
 .aaw-tools .build-active-head strong { display: block; font-size: 13px; font-weight: 600; color: var(--color-ink); }
-/* 路径做成可点的"伪代码"：保留等宽与省略号，但整行就是「打开目录」。 */
-.aaw-tools .build-path { display: block; max-width: 100%; margin-top: 2px; padding: 0; border: 0; background: none; font-family: Consolas, monospace; font-size: 11px; line-height: 1.5; color: var(--color-ink-subtle); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.aaw-tools .build-path:hover { color: var(--color-info); text-decoration: underline; }
-.aaw-tools .build-path:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; border-radius: 3px; }
+/* 目录只展示、不打开：等宽路径 + 文件夹图标 + 复制，看起来是「信息」而不是按钮。 */
+.aaw-tools .tool-path { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 3px 4px 3px 8px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-base); vertical-align: middle; }
+.aaw-tools .tool-path:hover { border-color: var(--color-line-strong); }
+.aaw-tools .tool-path-icon { flex: none; display: inline-flex; color: var(--color-ink-subtle); }
+.aaw-tools .tool-path-icon svg { width: 13px; height: 13px; }
+.aaw-tools .tool-path-label { flex: none; font-size: 11px; color: var(--color-ink-subtle); }
+.aaw-tools .tool-path-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, "Cascadia Code", monospace; font-size: 11px; color: var(--color-ink); user-select: all; }
+.aaw-tools .tool-path > button { flex: none; }
+.aaw-tools .tool-path.is-compact { padding: 2px 3px 2px 7px; }
+.aaw-tools .build-target .tool-path { flex: 0 1 auto; }
+.aaw-tools .build-active-head .tool-path, .aaw-tools .build-project-main .tool-path, .aaw-tools .build-stalled .tool-path { margin-top: 5px; }
 .aaw-tools .build-status { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--color-line); color: var(--color-ink-subtle); }
 .aaw-tools .build-status.is-running { border-color: color-mix(in srgb, var(--color-info) 45%, var(--color-line)); color: var(--color-info); }
 .aaw-tools .build-status.is-ready { border-color: color-mix(in srgb, var(--color-success-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-success-ink, var(--color-info)); }
@@ -252,13 +260,12 @@
 /* ── 工具项目列表 ─────────────────────────────────────────────────────── */
 .aaw-tools .build-projects { display: grid; gap: 8px; }
 .aaw-tools .build-projects-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 2px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .build-projects-head .build-path { display: inline-flex; margin-top: 0; flex: none; }
+.aaw-tools .build-projects-head .tool-path { flex: none; }
 .aaw-tools .tools-guide { margin-left: auto; }
 .aaw-tools .build-project { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-surface); }
 .aaw-tools .build-project-main { min-width: 0; flex: 1 1 220px; }
 .aaw-tools .build-project-main strong { font-size: 13px; font-weight: 600; color: var(--color-ink); }
 .aaw-tools .build-project-main span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .build-project-main .build-path { margin-top: 3px; }
 .aaw-tools .build-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .aaw-tools .build-project-actions button { min-height: 28px; padding: 4px 10px; font-size: 12px; border-radius: 7px; }
 .aaw-tools .build-permission { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-warning-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-warning-ink, var(--color-info)); font-style: normal; }
@@ -293,6 +300,8 @@
 .aaw-tools .tools-empty-steps small { display: block; margin-top: 3px; font-size: 11px; line-height: 1.5; color: var(--color-ink-subtle); }
 .aaw-tools .tools-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
 .aaw-tools .tools-empty-primary { min-height: 34px; padding: 7px 16px; }
+/* 三级操作用虚线边框，免得纯文字按钮看起来像粘在旁边按钮上的一段说明。 */
+.aaw-tools .tools-empty-examples { min-height: 34px; padding: 7px 14px; border: 1px dashed var(--color-line-strong); border-radius: 9px; }
 .aaw-tools .tools-empty-foot { margin-top: 14px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
 
 /* 搜索无结果：一行灰字太容易被当成"页面坏了"，给出原因和一个能点的退路。 */

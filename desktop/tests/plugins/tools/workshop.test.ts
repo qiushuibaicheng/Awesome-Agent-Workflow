@@ -7,9 +7,9 @@ import type { ToolsService } from "../../../src/plugins/tools/service.ts";
 import { createWorkshop } from "../../../src/plugins/tools/ui/workshop.ts";
 
 /**
- * 工坊的"人接手"路径：AI 回灌 3 轮还修不好时，用户必须能打开目录、改完
- * 自己发起校验。这两个动作都得真的接到宿主上——只写一句"或直接改文件"
- * 等于把死路当结论（见 docs 22 §4 P0-2）。
+ * 工坊的"人接手"路径：AI 回灌 3 轮还修不好时，必须把选择权交回用户——
+ * 状态里留着项目路径（UI 用它渲染可复制的文本）和"重新校验"入口。
+ * 只写一句"或直接改文件"等于把死路当结论（见 docs 22 §4 P0-2）。
  */
 function harness(options: { native?: boolean } = {}) {
   const io = memoryToolIO();
@@ -67,7 +67,7 @@ function stopAgent(session: ReturnType<typeof harness>["session"]) {
 }
 
 it("hands over to the user after three repair rounds, with both actions wired", async () => {
-  const { workshop, io, dir, send, openInFileManager, session } = harness();
+  const { workshop, io, dir, send, session } = harness();
   await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
     schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
     actions: [{ id: "run", description: "跑", inputSchema: { type: "object", properties: {} } }],
@@ -91,9 +91,8 @@ it("hands over to the user after three repair rounds, with both actions wired", 
   expect(stalled).toContain("3 轮");
   expect(stalled).not.toContain("直接改文件");
 
-  // 两个动作都必须真的能点：打开目录走宿主，重新校验读磁盘。
-  await workshop.openDir();
-  expect(openInFileManager).toHaveBeenCalledWith(dir, "directory");
+  // 交接时项目路径还在状态里：UI 靠它渲染可复制的路径文本，不需要再打开目录。
+  expect(workshop.state.getState().project?.dir).toBe(dir);
 
   await io.writeTextFile(`${dir}/index.html`, "<p>改好了</p><script>window.aawActions={run:async()=>({ok:true})}</script>");
   await workshop.verify();
@@ -102,19 +101,3 @@ it("hands over to the user after three repair rounds, with both actions wired", 
   expect(workshop.state.getState().check?.ready).toBe(true);
 });
 
-it("says the directory is gone instead of opening nothing", async () => {
-  const { workshop, io, dir, openInFileManager } = harness();
-  await workshop.select(dir);
-  io.files.clear();
-  await workshop.openDir();
-  expect(openInFileManager).not.toHaveBeenCalled();
-  expect(workshop.state.getState().note?.text).toContain("项目目录不在了");
-});
-
-it("refuses to open a local directory in browser preview instead of failing silently", async () => {
-  const { workshop, dir, openInFileManager } = harness({ native: false });
-  await workshop.select(dir);
-  await workshop.openDir();
-  expect(openInFileManager).not.toHaveBeenCalled();
-  expect(workshop.state.getState().note?.text).toContain("桌面版");
-});

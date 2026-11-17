@@ -3,6 +3,7 @@ import { useStore } from "zustand";
 import { DangerButton, btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
 import { WrenchIcon } from "../../../shared/ui/icons.tsx";
 import type { PersonalTool } from "../types.ts";
+import { ToolPath } from "./ToolPath.tsx";
 import type { WorkshopService } from "./workshop.ts";
 
 /**
@@ -22,7 +23,7 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
   const snapshot = useStore(workshop.state);
   const [confirming, setConfirming] = useState<string>();
   const [renaming, setRenaming] = useState<{ dir: string; name: string; id: string; note?: string }>();
-  const { projects, projectsLoading } = snapshot;
+  const { projects, projectsLoading, projectsRoot } = snapshot;
   if (projectsLoading && !projects.length)
     return <p className="build-hint">正在读取工具项目…</p>;
   if (!projects.length)
@@ -48,7 +49,9 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
   return <>
     <div className="build-projects-head">
       <span>{projects.length} 个项目</span>
-      <button type="button" className="build-path" data-hint="在文件管理器中打开" onClick={() => void workshop.openProjectsRoot()}>打开项目根目录</button>
+      {projectsRoot
+        ? <ToolPath path={projectsRoot} label="根目录" compact />
+        : <span>根目录：AAW 数据目录 / tools / projects</span>}
     </div>
     <ul aria-label="工具项目" className="build-projects">
       {projects.map((project) => {
@@ -71,14 +74,8 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
             {project.network && <em className="build-permission">可联网</em>}
             {!project.hasHtml && <em className="build-missing">还没有 index.html</em>}
           </span>
-          {/* 路径可点：想直接看文件的人不该先"继续开发"再想别的办法。 */}
-          <button
-            type="button"
-            className="build-path"
-            data-hint="在文件管理器中打开"
-            aria-label={`打开项目目录：${project.dir}`}
-            onClick={() => void workshop.openDir(project.dir)}
-          >{project.dir}</button>
+          {/* 源码位置是信息，不是操作：完整路径可复制，不再依赖系统文件管理器。 */}
+          <ToolPath path={project.dir} />
           {project.broken && <span className="build-hint is-error">{project.broken}</span>}
         </div>
         {renaming?.dir === project.dir ? (

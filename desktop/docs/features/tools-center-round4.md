@@ -26,7 +26,7 @@
 
 既然一句话描述就能让 AI 建项目、写 `manifest.json` 和 `index.html`、自动回灌校验，再留一个手写 JSON 的编辑器就是两条路做同一件事。删掉 `ToolDeveloper.tsx` 与 `View.kind === "developer"`，三个页签收成两个；卡片菜单里的「编辑工具包」同步移除；`sample.ts`、`parseToolPackage()` 不再被面板引用。安装冲突文案里的「请在开发模式中更新」改成「请在管理页更新源码」。
 
-目录不再只是一行灰色文字：`workshop.ts` 新增 `openProjectsRoot()`，`project.ts` 的 `listToolProjectSummaries()` 返回默认根目录，`ToolBuilder.tsx` / `ToolProjects.tsx` 里的路径都变成可点按钮（复用 host `files.openInFileManager`），点开就是文件管理器。
+目录不再只是一行灰色文字：`project.ts` 的 `listToolProjectSummaries()` 返回默认根目录，`ToolBuilder.tsx` / `ToolProjects.tsx` 里的路径做成等宽可复制文本。（本轮曾把它们做成调用 `files.openInFileManager` 的可点按钮；第六轮按产品决定回退，见 `tools-center-round6.md`——不再申请 opener 权限。）
 
 ## 3. 列表密度与导出文案
 
