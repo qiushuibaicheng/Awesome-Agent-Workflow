@@ -1,7 +1,7 @@
 import { it, expect } from "vitest";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { exportToolProject, importToolProject } from "../../../src/plugins/tools/runtime/projectArchive.ts";
-import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
+import { parseToolPackage, toolPackageLimit } from "../../../src/plugins/tools/runtime/package.ts";
 import { resolveToolSettings, toolSettingsScript, validateToolSettings } from "../../../src/plugins/tools/runtime/settings.ts";
 import { sampleTool } from "../../../src/plugins/tools/ui/sample.ts";
 
@@ -67,4 +67,28 @@ it("rejects Windows-invalid source filenames in JSON packages and ZIP projects",
   const path = "src/我的工具 (v1)+测试.js";
   const tool = parseToolPackage(JSON.stringify({ ...sampleTool, sourceFiles: { [path]: "// source" } }));
   expect(importToolProject(exportToolProject(tool)).sourceFiles?.[path]).toBe("// source");
+});
+
+it("roundtrips a valid project with all 64 source file slots occupied", () => {
+  const sourceFiles = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`src/file-${index}.txt`, `file ${index}`]));
+  const tool = parseToolPackage(JSON.stringify({ ...sampleTool, sourceFiles }));
+  const restored = importToolProject(exportToolProject(tool));
+  expect(restored.sourceFiles).toEqual(sourceFiles);
+  expect(restored.html).toBe(tool.html);
+});
+
+it("roundtrips a valid package close to the byte limit without losing source", () => {
+  const base = { ...sampleTool, html: "", sourceFiles: { "notes.txt": "作者的记录" } };
+  const bytes = new TextEncoder().encode(JSON.stringify(base)).length;
+  const tool = parseToolPackage(JSON.stringify({ ...base, html: "x".repeat(toolPackageLimit - bytes - 128) }));
+  const restored = importToolProject(exportToolProject(tool));
+  expect(restored.html).toBe(tool.html);
+  expect(restored.sourceFiles).toEqual(tool.sourceFiles);
+});
+
+it("does not add an empty sourceFiles field to a package at the byte limit", () => {
+  const base = { schemaVersion: 1, id: "at-limit", name: "边界", version: "1.0.0", html: "" };
+  const bytes = new TextEncoder().encode(JSON.stringify(base)).length;
+  const tool = parseToolPackage(JSON.stringify({ ...base, html: "x".repeat(toolPackageLimit - bytes) }));
+  expect(importToolProject(exportToolProject(tool))).toEqual(tool);
 });

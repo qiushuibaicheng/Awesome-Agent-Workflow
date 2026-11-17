@@ -1,6 +1,6 @@
 import { strToU8, unzipSync, zipSync } from "fflate";
 import type { ToolPackage } from "../types.ts";
-import { parseToolPackage } from "./package.ts";
+import { parseToolPackage, validateToolPackageText } from "./package.ts";
 import { safeSourcePath } from "./sourceFiles.ts";
 
 export const toolArchiveLimit = 1024 * 1024;
@@ -51,9 +51,15 @@ ID 相同的会覆盖更新；界面会在安装后告诉你版本从哪一版�
   // Windows treats paths case-insensitively. Author files win over generated
   // scaffolding while retaining their exact contents and original path casing.
   const authored = new Set(Object.keys(sourceFiles ?? {}).map((path) => path.toLowerCase()));
+  const generated = Object.fromEntries(Object.entries(scaffolding).filter(([path]) => !authored.has(path.toLowerCase())));
+  const combined = { ...generated, ...sourceFiles };
+  // Optional instructions must not turn an installable package into a ZIP
+  // that exceeds the source-count or serialized-size limits on reimport.
+  const exportedSources = Object.keys(generated).length > 0
+    && !validateToolPackageText(JSON.stringify({ ...manifest, html, sourceFiles: combined })).ok
+    ? sourceFiles : combined;
   return {
-    ...Object.fromEntries(Object.entries(scaffolding).filter(([path]) => !authored.has(path.toLowerCase()))),
-    ...sourceFiles,
+    ...exportedSources,
     "manifest.json": JSON.stringify(manifest, null, 2),
     "index.html": html,
   };
@@ -93,7 +99,11 @@ export function importToolProject(bytes: Uint8Array): ToolPackage {
   try { manifest = JSON.parse(sources["manifest.json"]!); } catch { throw new Error("manifest.json 格式无效。"); }
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("manifest.json 必须是对象。");
   const sourceFiles = Object.fromEntries(Object.entries(sources).filter(([name]) => name !== "manifest.json" && name !== "index.html"));
-  return parseToolPackage(JSON.stringify({ ...manifest, html: sources["index.html"], sourceFiles }));
+  return parseToolPackage(JSON.stringify({
+    ...manifest,
+    html: sources["index.html"],
+    sourceFiles: Object.keys(sourceFiles).length ? sourceFiles : undefined,
+  }));
 }
 
 export async function readToolImport(file: File): Promise<ToolPackage> {

@@ -273,3 +273,9 @@ runtime/io.ts 的 memoryToolIO.writeTextFile 向上补齐父目录时，循环�
 src/plugins/tools/index.ts 的 rollback 在首次await之前记住发起用户；备份队列等待结束和备份读取结束后，分别检查当前用户是否仍相同。切换/退出登录即抛出可展示的取消提示，不安装任何备份。工坊已有错误处理会显示此提示。
 
 tests/plugins/tools/tools.test.ts 覆盖等待队列和读取文件两个时间窗口，确认两个账号的同名工具均保持原版本。修复前可复现A发起回退、立即切B，B从2.1.0错误回退到2.0.0。本项不改变账号目录编码，不能替代14:28记录的目录碰撞修复。
+
+## 2026-11-17 20:28 修复：源码ZIP边界往返
+
+runtime/projectArchive.ts 添加自动README前，按实际重导入的JSON校验文件数与字节数；若会超过64个sourceFiles或512 KB工具包上限，仅省略生成的说明，保留全部作者文件、HTML与清单。普通小包仍生成README，作者自己提供的README继续优先且不会被删除。
+
+导入没有附加文件的源码ZIP时，不额外写入空sourceFiles字段，避免恰好512 KB的合法包因无意义元数据超过上限。projectArchive.test.ts新增64文件、接近字节上限和精确字节上限三种往返回归。未放宽原有导入限制，不影响账号目录编码；已知账号目录碰撞仍待单独解决。
