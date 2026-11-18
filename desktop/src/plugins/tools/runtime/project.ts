@@ -12,7 +12,9 @@
  */
 import { joinPath, parentPath, pathKey, pathName } from "../../../shared/panelPaths.ts";
 import type { ToolPackage, ToolViolation } from "../types.ts";
-import { toolIdPattern, validateToolPackage, validateToolPackageText } from "./package.ts";
+import { toolIdPattern, toolOwnerSegment, validateToolPackage, validateToolPackageText } from "./package.ts";
+// 老调用方从 project.ts 取这个函数；真源在 package.ts（构建时会 bundle 给 mjs 侧）。
+export { toolOwnerSegment } from "./package.ts";
 import { safeSourcePath } from "./sourceFiles.ts";
 import { runToolRules, splitViolations } from "./rules.ts";
 import { toolGuide } from "./guide.ts";
@@ -123,19 +125,6 @@ export const toolProvenanceFields = ["author", "source"] as const;
 export function toolProjectIdFromBrief(brief: string): string {
   const ascii = brief.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
   return ascii || "tool";
-}
-
-/**
- * 目录名里用的账号标识：只留安全字符，其余换成下划线。
- *
- * 为什么要规整：user id 来自 SSO，可能带 `@ / :` 这类在 Windows 路径里非法或
- * 带特殊含义的字符；`..` 这类值还会造成路径穿越。同一套规则在
- * `tools-runtime/tool-storage.mjs` 里有一份镜像（纯 mjs，不能 import ts），
- * 改一边要一起改。
- */
-export function toolOwnerSegment(userId: string | undefined): string {
-  const cleaned = (userId ?? "").replace(/[^A-Za-z0-9._-]/g, "_").replace(/^[._]+|\.+$/g, "");
-  return cleaned || "anonymous";
 }
 
 /**

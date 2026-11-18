@@ -1,27 +1,15 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readRecord } from "./catalog.mjs";
+// 目录段规则与 src/plugins/tools/runtime/project.ts 共用同一个真源；
+// 这份 mjs 是构建期由 package.ts bundle 出来的，不要再本地复制一份。
+import { toolOwnerSegment } from "./package-contract.mjs";
 
 /** 单个工具的总存储上限。 */
 const toolLimit = 5 * 1024 * 1024;
 /** 单个键的上限。 */
 const keyLimit = 256 * 1024;
 const toolIdPattern = /^[a-z0-9][a-z0-9.-]{0,63}$/;
-
-/**
- * 账号标识转成目录段：只留安全字符，其余换成下划线。
- *
- * 规则和 `src/plugins/tools/runtime/project.ts` 的 `toolOwnerSegment` 完全一致
- * （那边是 ts、这里是纯 mjs，不能互相 import）。改一边就要改另一边，否则同一个
- * 账号在"工具源码目录"和"工具数据目录"里会叫两个名字。
- *
- * 不用 `\w` 是为了排除 `:`（Windows 文件名非法）和路径穿越用的 `.`。
- */
-function ownerSegment(userId) {
-  if (typeof userId !== "string") return "anonymous";
-  const cleaned = userId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^[._]+|\.+$/g, "");
-  return cleaned || "anonymous";
-}
 
 /**
  * 工具持久化：`window.aawStore` 的落地实现。
@@ -34,13 +22,14 @@ export function createToolStorage(root) {
   const storageRoot = () => readRecord(join(root, "storage-location.json")).active || root;
 
   function owner() {
-    try {
-      const settings = readRecord(join(storageRoot(), "configuration", "preferences.json"));
-      const auth = JSON.parse(settings["aaw-desktop.auth.v1"] || "null");
-      return ownerSegment(auth?.user?.id);
-    } catch {
-      return "anonymous";
-    }
+    // 以前这里 catch 成 "anonymous"：读不到账号就把数据写进一个用户永远
+    // 看不到的目录，登录后读 <账号>/ 全是空的，看起来就像数据凭空消失了。
+    // 现在让 toolOwnerSegment 抛明确错误——失败要当场可见，不能静默降级。
+    const settings = readRecord(join(storageRoot(), "configuration", "preferences.json"));
+    let auth;
+    try { auth = JSON.parse(settings["aaw-desktop.auth.v1"] || "null"); }
+    catch { throw new Error("账号信息格式无效，请重新登录 AAW。"); }
+    return toolOwnerSegment(auth?.user?.id);
   }
 
   function file(toolId) {
@@ -49,8 +38,11 @@ export function createToolStorage(root) {
   }
 
   function read(toolId) {
+    // 先算路径再进 try：账号读不到时 file() 抛的错不能被下面"文件坏了就给空对象"
+    // 的分支吞掉，否则又是静默降级——用户看到空数据，却不知道该先登录。
+    const path = file(toolId);
     try {
-      const value = JSON.parse(readFileSync(file(toolId), "utf8"));
+      const value = JSON.parse(readFileSync(path, "utf8"));
       return value && typeof value === "object" && !Array.isArray(value) ? value : {};
     } catch (error) {
       if (error?.code === "ENOENT") return {};

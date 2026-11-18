@@ -54,7 +54,7 @@ it("creates a project whose guide and manifest are already on disk", async () =>
 
 it("treats index.html as the entry point and becomes installable once it is complete", async () => {
   const { io } = memoryIO();
-  const { dir } = await createToolProject(io, { id: "demo", name: "演示" });
+  const { dir } = await createToolProject(io, { id: "demo", name: "演示", owner: "u1" });
   await io.writeTextFile(`${dir}/index.html`, page);
   const read = await readToolProject(io, dir);
   expect(read.ok).toBe(true);
@@ -68,7 +68,7 @@ it("treats index.html as the entry point and becomes installable once it is comp
 
 it("blocks installation when a declared action has no implementation", async () => {
   const { io } = memoryIO();
-  const { dir } = await createToolProject(io, { id: "demo", name: "演示" });
+  const { dir } = await createToolProject(io, { id: "demo", name: "演示", owner: "u1" });
   await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
     schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
     actions: [{ id: "run", description: "跑", inputSchema: { type: "object", properties: {} } }],
@@ -140,9 +140,20 @@ it("turns an account id into a safe directory segment", () => {
   expect(toolOwnerSegment("12345")).toBe("12345");
   expect(toolOwnerSegment("zhang.san@corp")).toBe("zhang.san_corp");
   expect(toolOwnerSegment("a/b:c")).toBe("a_b_c");
-  expect(toolOwnerSegment("..")).toBe("anonymous");
-  expect(toolOwnerSegment(undefined)).toBe("anonymous");
-  expect(toolOwnerSegment("")).toBe("anonymous");
+});
+
+/**
+ * 读不到账号时宁可报错，也不能退回 `anonymous`。
+ *
+ * 这个兜底害过两次：旧工具迁移把源码落进 `projects/anonymous/`，用户在
+ * 「开发工具」里一个都看不见；`aawStore` 把数据落进 `storage/anonymous/`，
+ * 登录后读 `<账号>/` 全是空的，看起来像数据凭空消失。两次都是"能写进去"
+ * 掩盖了"读不回来"。
+ */
+it("refuses to invent an anonymous owner instead of silently misplacing data", () => {
+  for (const bad of [undefined, "", "   ", "..", "..."]) {
+    expect(() => toolOwnerSegment(bad), `owner=${JSON.stringify(bad)}`).toThrow(/账号|目录名/);
+  }
 });
 
 it("derives a usable id from a Chinese wish", () => {

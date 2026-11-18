@@ -22,6 +22,27 @@ export {
 } from "./contract.ts";
 export { checkCompatibility, currentHostContract, explainIncompatibility } from "./compat.ts";
 
+/**
+ * 账号标识转成目录段：只留安全字符，其余换成下划线。
+ *
+ * 这是**单一真源**：`runtime/project.ts` 用它算源码/运行副本的落点，
+ * `tools-runtime/tool-storage.mjs` 通过构建产物 `package-contract.mjs` 拿同一个函数
+ * 算 `aawStore` 的落点。以前两边各写一份、靠注释提醒"改一边要改另一边"，结果
+ * 一边改了另一边没跟上——现象是工具数据在 `<账号>/` 里、源码在 `anonymous/` 里，
+ * 用户以为东西丢了。
+ *
+ * SSO 的 user id 可能带 `@ / :`（Windows 非法）或 `..`（路径穿越），所以要规整。
+ * 读不到账号时**抛错，不返回 `anonymous`**：静默写进一个用户永远看不到的目录
+ * 比直接报错糟得多——前者的数据找不回来，后者至少当场就知道该先登录。
+ */
+export function toolOwnerSegment(userId: string | undefined): string {
+  if (typeof userId !== "string" || !userId.trim())
+    throw new Error("工具需要有效的账号才能确定存储位置，请先登录 AAW。");
+  const cleaned = userId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^[._]+|\.+$/g, "");
+  if (!cleaned) throw new Error("账号标识无法转换成安全的目录名，请联系管理员。");
+  return cleaned;
+}
+
 /** 域名校验：允许 `*.corp.example.com` 与 `host:port`，挡住会污染 CSP 的字符。 */
 const hostPattern = /^(\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/i;
 

@@ -28,6 +28,7 @@ import {
   type ToolProjectIO,
   type ToolProjectSummary,
 } from "../runtime/project.ts";
+import { checkCompatibility, ToolPackageError } from "../runtime/package.ts";
 import { hostToolIO } from "../runtime/io.ts";
 import type { InstallOutcome, ToolsService } from "../service.ts";
 import type { ToolPackage } from "../types.ts";
@@ -357,6 +358,12 @@ export function createWorkshop(deps: {
   }
 
   async function installArchive(tool: ToolPackage, files?: Readonly<Record<string, Uint8Array>>): Promise<InstallOutcome> {
+    // 闸门提前到写盘之前。`tools.install()` 里那道契约校验只依赖清单的
+    // `requires`，不需要磁盘；等它拦下来时目录已经解压完了，installed/<账号>/<id>/
+    // 会留一个注册表里查不到的空壳——用户看不见、卸载清不到、白占空间。
+    // 把同一道判定挪到这里，不兼容的包从头到尾不碰磁盘。
+    const incompatible = checkCompatibility(tool);
+    if (incompatible.length) throw new ToolPackageError(incompatible);
     // 只有清单与页面的包走原路径：不建目录、不碰磁盘，行为和以前一模一样。
     if (!files || !Object.keys(files).length) return tools.install(tool, true);
     // 解到 `installed/` 而不是 `projects/`：前者是我们的运行副本（卸载可删），

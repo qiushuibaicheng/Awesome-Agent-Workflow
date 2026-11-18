@@ -150,6 +150,28 @@ it("extracts an imported archive into installed/, never into the author's projec
 });
 
 /**
+ * 契约不够的包要"从头到尾没碰过磁盘"。
+ *
+ * 以前闸门只在 `tools.install()` 里，而 installArchive 是先把 ZIP 解压、
+ * 写进 `installed/<账号>/<id>/` 再调 install。被拒之后注册表没记录，
+ * 目录却留着：界面看不见、卸载清不到、白占空间（带 node_modules 时尤其明显）。
+ */
+it("rejects an incompatible archive before creating any directory", async () => {
+  const { workshop, io } = harness();
+  const tool = parseToolPackage(JSON.stringify({
+    schemaVersion: 1, id: "future", name: "未来版工具", version: "1.0.0",
+    html: "<p>hi</p>", requires: { contract: 99 },
+  }));
+  const encoder = new TextEncoder();
+  await expect(workshop.installArchive(tool, {
+    "manifest.json": encoder.encode(JSON.stringify({ schemaVersion: 1, id: "future", name: "未来版工具", version: "1.0.0", requires: { contract: 99 } })),
+    "index.html": encoder.encode("<p>hi</p>"),
+  })).rejects.toThrow(/第 99 代/);
+  expect([...io.files.keys()].filter((path) => path.startsWith("tools/installed/"))).toEqual([]);
+  workshop.dispose();
+});
+
+/**
  * 迁移的落点必须跟项目列表同一个账号层。
  *
  * 以前这一步在面板里直接调 `migrateLegacyTools(io, tools)`，没传 owner，
