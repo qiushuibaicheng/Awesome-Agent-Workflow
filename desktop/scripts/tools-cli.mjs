@@ -31,10 +31,18 @@ try {
     stdinFile = await writeInput(profile);
     args.push(`--input-file=${stdinFile}`);
   }
+  // 和 src-tauri/src/tools_runtime.rs 的 launch() 保持同一套清洗：从 IDE /
+  // 脚本宿主的终端里跑时，环境里常带着 ELECTRON_RUN_AS_NODE=1，electron 会被
+  // 当成纯 Node 启动，主进程的 `import { BrowserWindow } from "electron"` 直接
+  // SyntaxError。这里漏清，命令行能跑的地方 GUI 就跑不起来，反之亦然。
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  if (profile) env.AAW_TOOLS_HOST_PROFILE = profile;
   const child = spawn(binary, launcher ? [] : ["--aaw-cli", ...args], {
     stdio: ["ignore", "inherit", "inherit"],
     windowsHide: !launcher,
-    env: profile ? { ...process.env, AAW_TOOLS_HOST_PROFILE: profile } : process.env,
+    env,
   });
   process.exitCode = await new Promise((resolve, reject) => {
     child.once("error", reject);

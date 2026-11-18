@@ -55,9 +55,8 @@ function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void
     <div className="tools-empty-actions">
       <button type="button" className={`${btnPrimary} tools-empty-primary`} onClick={onCreate}>开始做工具 <span aria-hidden="true">→</span></button>
       <div className="tools-empty-alts">
-        <button type="button" className={`${btnGhost} tools-empty-alt`} onClick={onImport}>导入 ZIP</button>
-        <span className="tools-empty-alt-sep" aria-hidden="true">·</span>
-        <button type="button" className={`${btnGhost} tools-empty-alt`} onClick={onExamples}>载入示例工具</button>
+        <button type="button" className={`${btnSecondary} tools-empty-alt`} onClick={onImport}>导入 ZIP</button>
+        <button type="button" className={`${btnSecondary} tools-empty-alt`} onClick={onExamples}>载入示例工具</button>
       </div>
     </div>
     <p className="tools-empty-foot">示例工具随时可以卸载；完整约定见「开发指导 ↗」。</p>

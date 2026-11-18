@@ -325,9 +325,11 @@
    按钮各有一套内边距，看起来像三个大小不一的东西硬凑在一起。 */
 .aaw-tools .tools-empty-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 18px; }
 .aaw-tools .tools-empty-primary { min-height: 38px; padding: 9px 22px; font-size: 13px; }
-.aaw-tools .tools-empty-alts { display: flex; align-items: center; gap: 2px; }
-.aaw-tools .tools-empty-alt { min-height: 30px; padding: 5px 10px; font-size: 12px; }
-.aaw-tools .tools-empty-alt-sep { color: var(--color-ink-subtle); font-size: 12px; user-select: none; }
+/* 这两个以前是纯文字（btnGhost + 一个「·」分隔符），看起来像说明文字而不是
+   能点的东西——用户站在空页面上找不到导入入口。改成有边框实底的次级按钮，
+   和顶部「导入工具」同一套视觉语言，也和主按钮拉开层级。 */
+.aaw-tools .tools-empty-alts { display: flex; align-items: center; gap: 8px; }
+.aaw-tools .tools-empty-alt { min-height: 32px; padding: 6px 14px; font-size: 12px; }
 .aaw-tools .tools-empty-foot { margin-top: 14px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
 
 /* 搜索无结果：一行灰字太容易被当成"页面坏了"，给出原因和一个能点的退路。 */

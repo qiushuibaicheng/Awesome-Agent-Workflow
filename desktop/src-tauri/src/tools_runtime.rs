@@ -223,6 +223,16 @@ fn launch(app: &AppHandle, option: Option<&str>) -> Result<(), String> {
     let mut command = Command::new(executable(app)?);
     let root = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     let (port, token) = bridge(app)?;
+    // 这两个变量必须显式剔掉，不能让它继承。
+    //
+    // `ELECTRON_RUN_AS_NODE=1` 会让 electron.exe 以纯 Node 身份运行，宿主里
+    // `import { BrowserWindow } from "electron"` 直接抛
+    // "does not provide an export named 'BrowserWindow'"，进程一秒就退——表现出来
+    // 就是「按快捷键毫无反应、也不报错」，因为原来的 stderr 被丢进了 null。
+    // `NODE_OPTIONS` 同理：里面常带 IDE / 脚本宿主的 --require 预加载，打进
+    // Chromium 主进程后行为不可预期。
+    command.env_remove("ELECTRON_RUN_AS_NODE");
+    command.env_remove("NODE_OPTIONS");
     command.env("AAW_TOOLS_DATA_ROOT", &root);
     command.env("AAW_TOOLS_PARENT_PID", std::process::id().to_string());
     command.env("AAW_LAUNCHER_PORT", port.to_string());
@@ -231,10 +241,15 @@ fn launch(app: &AppHandle, option: Option<&str>) -> Result<(), String> {
     if let Some(option) = option {
         command.arg(option);
     }
+    // stderr 以前是 Stdio::null()：冷启动崩溃、模块解析失败、协议注册报错全都
+    // 无从查证，用户只看到「界面没反应」。留一份日志，现场至少有据可查。
+    let stderr = std::fs::File::create(root.join("tools-runtime.log"))
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null());
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
