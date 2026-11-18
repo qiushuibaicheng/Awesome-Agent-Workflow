@@ -90,9 +90,9 @@ function guideBody(context: ToolGuideContext): string {
 | 文件与小批处理 | 打开一个文本、清洗内容、再存成新文件；把一批文本合并导出 |
 | 个人留存 | 待办清单、随手记、常用配置、最近用过的输入（走 \`aawStore\`） |
 
-它能读写系统剪切板、读写用户亲手选的文件、把数据留到下次打开、按声明联网访问 http/https。**不能**做后台常驻服务、不能装 npm 包、不能读任意本地路径、不能弹系统通知或调用摄像头——平台把这些挡在沙箱外面，是为了让一个 ZIP 能在别人机器上直接装、直接跑。
+它能读写系统剪切板、读写用户亲手选的文件、把数据留到下次打开、按声明联网访问 http/https，在你声明之后还能常驻后台与弹提醒。**不能**装 npm 包、不能读任意本地路径、不能调用摄像头或录屏——平台把这些挡在沙箱外面，是为了让一个 ZIP 能在别人机器上直接装、直接跑。
 
-技术上的边界只有一条：整个工具是自包含的 \`index.html\`（HTML/CSS/JS 都在里面），\`manifest.json\` 描述身份、动作、设置与能力。不是多页面站点，不是后台服务，不是需要构建的 npm 应用。必须有至少一个动作让 AI 也能调用——界面上的按钮和 \`aawActions\` 里的函数是同一件事，人和 AI 走同一条路。
+技术上的边界只有一条：整个工具是自包含的 \`index.html\`（HTML/CSS/JS 都在里面），\`manifest.json\` 描述身份、动作、设置与能力。不是多页面站点，不是后台守护进程，不是需要构建的 npm 应用。必须有至少一个动作让 AI 也能调用——界面上的按钮和 \`aawActions\` 里的函数是同一件事，人和 AI 走同一条路。
 
 ## 项目结构
 
@@ -105,7 +105,7 @@ function guideBody(context: ToolGuideContext): string {
 
 **为什么有这条**：我们做的是能在平台上传播的工具。一个工具导出成一个 ZIP，别人导入后要能直接装、直接跑——前提是**每台机器上的 AAW 都提供同一套运行框架**，而工具包里只装工具自己。框架是地基，不是行李。
 
-**框架是什么、由谁提供**：工具窗口的 \`aaw-tool://\` 协议、CSP 沙箱、独立内存分区、五个 \`window.aaw*\` 能力注入、窗口尺寸与启动器/命令行，全在桌面端的 \`tools-runtime/\` 与 Tauri 侧 \`tools_runtime.rs\` 里，由**宿主**在运行时提供。它们不在工具项目里，也不要复制、改写或伪造它们。项目里的 \`AGENTS.md\`、导出 ZIP 里的 \`README.md\` 都是平台按工具身份生成的契约文件，不是给你改的；\`manifest.json\` 的字段名、\`schemaVersion\`、\`id\` 规则、\`html\` 必须是整页字符串这些约定，也属于同一份契约。
+**框架是什么、由谁提供**：工具窗口的 \`aaw-tool://\` 协议、CSP 沙箱、独立内存分区、九个 \`window.aaw*\` 能力注入（八个宿主注入给工具、一个工具赋给宿主）、窗口尺寸与启动器/命令行，全在桌面端的 \`tools-runtime/\` 与 Tauri 侧 \`tools_runtime.rs\` 里，由**宿主**在运行时提供。它们不在工具项目里，也不要复制、改写或伪造它们。项目里的 \`AGENTS.md\`、导出 ZIP 里的 \`README.md\` 都是平台按工具身份生成的契约文件，不是给你改的；\`manifest.json\` 的字段名、\`schemaVersion\`、\`id\` 规则、\`html\` 必须是整页字符串这些约定，也属于同一份契约。
 
 **平台框架/关键文件的保留名**（不要改、不要塞进 \`sourceFiles\`、不要另造同名文件）：${frameworkFileList()}。
 
@@ -156,7 +156,7 @@ function guideBody(context: ToolGuideContext): string {
 4. \`window.aawClipboard\` — \`readText()\` / \`writeText(text)\`（上限 1 MB）；\`readImage()\` 返回 \`{ png: ArrayBuffer } | null\`；\`writeImage(bytes)\` 写图片。
 5. \`window.aawSystem\` — \`info()\` 给 \`{ platform, arch, osVersion, cpus, totalMemory, freeMemory, homedir, tmpdir }\`；\`disk()\` 给 \`{ total, free }\`。**只读白名单**，没有进程列表、没有环境变量全集。
 6. \`window.aawSecrets\` — \`set(k,v) / get(k) / delete(k)\`，走系统加密存储（safeStorage），**不落明文**。API Key、Token 放这里，不要写进 html 或 \`aawStore\`。
-7. \`window.aawLifecycle\` — \`notify(title, body)\` 弹系统通知；\`keepAlive({ reason })\` 声明关窗后继续运行；\`schedule(seconds)\` 定时（≥ 60 秒）配 \`onSchedule(cb)\` 收回调。**常驻与定时必须在清单 \`background\` 里声明**，否则视为未申请。
+7. \`window.aawLifecycle\` — \`notify(title, body)\` 弹系统通知；\`keepAlive({ reason })\` 声明关窗后继续运行；\`schedule(seconds)\` 定时（≥ 60 秒）配 \`onSchedule(cb)\` 收回调。**常驻与定时必须在清单 \`background\` 里声明**，否则视为未申请。关窗只是把窗口藏起来、进程还在，用户可以随时在工具中心的「⋯ → 停止后台运行」或托盘菜单里彻底停掉它——所以别把常驻当成用户看不见的事，\`reason\` 写清楚。
 8. \`window.aawContext\` — \`selection\`（唤起时可用的文本，没有就是空串）、\`origin\`（\`hotkey\` / \`launcher\` / \`action\`）、\`probe()\` 主动再取一次。需要它就在清单写 \`"needsSelection": true\`。
 9. \`window.aawBus\` — \`emit(topic, payload)\` / \`on(topic, cb)\`，工具之间在线广播，**不保留历史**（对方不在线就收不到）。
 
@@ -171,7 +171,7 @@ function guideBody(context: ToolGuideContext): string {
 - \`localStorage\` 也能用，但它活在内存分区，AAW 重启会清空——要留存就走 \`aawStore\`（R6）。
 - 读剪切板只在用户点击或动作被显式调用时做，不要在页面一加载就静默读取。
 - 窗口宽度不固定（最小约 360px），布局别写死宽度（R7）。
-- 清单里可以写 \`requires: { "contract": 1, "capabilities": ["files"] }\` 说明最低要求；不写就宽松放行，导出时平台会自动补上。
+- 清单里可以写 \`requires: { "contract": 1, "capabilities": ["files"] }\` 说明最低要求；不写就宽松放行，导出时平台会自动补上。写了之后，在给不了这些条件的宿主上打开会看到一张说明页（需要什么、当前是什么、怎么解决），而不是白屏——所以这个字段值得写准。
 
 ## 红线
 
@@ -211,7 +211,7 @@ export function toolGuideSkill(): string {
   return `---
 name: tool-dev
 version: "1.0.0"
-description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、五个运行时能力入口、平台框架与不可改动的文件（R9 通用性红线）、红线与交付前自检。
+description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、九个能力入口与联网声明、平台框架与不可改动的文件（R9 通用性红线）、红线与交付前自检。
 ---
 
 ${toolGuide({ id: "<工具 id>", name: "<工具名>" })}

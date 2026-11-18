@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BrowserWindow, protocol, session, screen, webContents } from "electron";
-import { readNetworkRule, resolveToolSettings } from "./package-contract.mjs";
+import { explainIncompatibility, readNetworkRule, resolveToolSettings } from "./package-contract.mjs";
 
 const scheme = "aaw-tool";
 /**
@@ -14,6 +14,17 @@ const scheme = "aaw-tool";
 const documents = new Map();
 /** webContents.id → { key, toolId }：IPC 侧要靠它判断"这个窗口是谁"。 */
 const toolWindows = new Map();
+/**
+ * toolId → { win, key }：已经打开着的可见工具窗口。
+ *
+ * 常驻工具（`aawLifecycle.keepAlive`）点关闭只是隐藏，窗口并没有销毁；再从启动器
+ * 或工具中心点「打开」时如果照旧 `new BrowserWindow`，就会出现两个实例同时活着、
+ * 一个还看不见——用户看到的是"状态没了"，宿主看到的是内存泄漏。这里按 toolId
+ * 记账，重复打开就聚焦原来那个窗口。
+ */
+const visibleWindows = new Map();
+/** toolId → BrowserWindow：不兼容说明页窗口，同样不该叠出一堆。 */
+const blockedWindows = new Map();
 /**
  * 声明了自签证书的域名。
  *
@@ -150,7 +161,144 @@ export function onlineToolIds() {
   return [...new Set([...toolWindows.values()].map((item) => item.toolId))];
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (ch) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+  ));
+}
+
+/**
+ * 不兼容说明页。
+ *
+ * 为什么要有它：工具 declared 了 `requires`，而当前宿主给不了，直接加载工具
+ * HTML 的结果是"窗口白屏"或"脚本报 undefined"——用户只会以为软件坏了。这里
+ * 用一张静态页把三件事说清楚：需要什么、当前是什么、还能做什么。
+ *
+ * 页面不挂 preload，也不登记 toolWindows：说明页不需要任何能力，给它能力反而是
+ * 一个多余的攻击面。
+ */
+function incompatiblePage(tool, problem) {
+  return `<style>
+    :root { color-scheme: dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #171c24;
+      color: #e7ecf3; font: 14px/1.7 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+    main { max-width: 520px; padding: 28px 30px; }
+    .mark { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+      background: #3a2f1a; color: #f0b34a; font-size: 20px; margin-bottom: 16px; }
+    h1 { margin: 0 0 10px; font-size: 17px; font-weight: 600; }
+    p { margin: 0 0 10px; color: #a9b4c4; }
+    .why { margin: 14px 0; padding: 12px 14px; border-radius: 10px; background: #1e2530;
+      border: 1px solid #2b3441; color: #dbe3ee; }
+    .why strong { color: #f0b34a; font-weight: 600; }
+    button { margin-top: 16px; min-height: 34px; padding: 7px 18px; border-radius: 9px; cursor: pointer;
+      border: 1px solid #2f3a48; background: #232b37; color: #dbe3ee; font: inherit; }
+    button:hover { background: #2a3341; }
+  </style>
+  <main>
+    <div class="mark">!</div>
+    <h1>「${escapeHtml(tool.name)}」在这个版本的桌面端跑不了</h1>
+    <p>工具本身没有被删除，也没有被停用——只是它要求的运行契约比当前桌面端新。</p>
+    <div class="why"><strong>原因：</strong>${escapeHtml(problem.reason)}</div>
+    <p>${escapeHtml(problem.hint)}</p>
+    <button type="button" onclick="window.close()">关闭</button>
+  </main>`;
+}
+
+/**
+ * 打开不兼容说明页（而不是把工具 HTML 塞进窗口）。
+ *
+ * 同一工具的说明页只留一个：反复点「打开」不该叠出五个一样的窗口。
+ */
+function openIncompatible(isolated, tool, problem, visible) {
+  const existing = blockedWindows.get(tool.id);
+  if (existing && !existing.isDestroyed()) {
+    if (visible) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+    }
+    return existing;
+  }
+  const key = randomUUID();
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const win = new BrowserWindow({
+    show: false, title: `${tool.name} · 不兼容`,
+    width: Math.min(620, workArea.width - 32), height: Math.min(430, workArea.height - 32),
+    minWidth: Math.min(360, workArea.width - 32), minHeight: Math.min(280, workArea.height - 32),
+    autoHideMenuBar: true, icon: join(import.meta.dirname, "icon.png"),
+    backgroundColor: "#171c24",
+    webPreferences: { session: isolated, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false },
+  });
+  // 说明页只要 HTML，不需要联网、不注册工具身份。
+  documents.set(key, {
+    html: incompatiblePage(tool, problem),
+    settings: {},
+    network: { enabled: false, hosts: [], insecure: false },
+    context: { selection: "", origin: "launcher" },
+  });
+  blockedWindows.set(tool.id, win);
+  win.on("closed", () => {
+    documents.delete(key);
+    if (blockedWindows.get(tool.id) === win) blockedWindows.delete(tool.id);
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-frame-navigate", (event) => event.preventDefault());
+  return win.loadURL(`${scheme}://${key}/index.html`).then(() => {
+    if (visible) win.show();
+    return win;
+  });
+}
+
+/**
+ * 关掉某个工具的所有窗口。
+ *
+ * 卸载时用。不关的话会出现"已经删掉的工具还在跑"：窗口还活着、动作还能被调用，
+ * 用户却在界面上找不到它——正是我们要消灭的那种"看不见但存在"。
+ */
+export function closeToolWindows(toolId) {
+  const live = visibleWindows.get(toolId);
+  visibleWindows.delete(toolId);
+  // destroy() 不走 close 事件，常驻工具那层"关窗改隐藏"的拦截不会生效。
+  if (live && !live.win.isDestroyed()) live.win.destroy();
+  const blocked = blockedWindows.get(toolId);
+  blockedWindows.delete(toolId);
+  if (blocked && !blocked.isDestroyed()) blocked.destroy();
+}
+
 export async function loadTool(isolated, tool, visible, settings, options = {}) {
+  /**
+   * 打开关口：先问一句"现在还能跑吗"。
+   *
+   * 这一层和安装关口是两件事——安装挡住了"装不进来的新工具"，这里挡的是
+   * "装的时候能跑、之后桌面端退回了旧版"（用户回滚安装包）或者"换了台机器
+   * 导入"的情况。没有这一层，表现就是白屏。
+   */
+  const problem = explainIncompatibility(tool);
+  if (problem) return openIncompatible(isolated, tool, problem, visible);
+
+  /**
+   * 同一个工具的可见窗口只留一个。
+   *
+   * 只有"已经打开着"才复用（常驻工具关窗是隐藏，窗口还活着）。重新装过一版
+   * 的话 HTML 变了，就换内容并 reload——否则用户点开看到的还是上一版。
+   */
+  if (visible) {
+    const live = visibleWindows.get(tool.id);
+    if (live && !live.win.isDestroyed()) {
+      const doc = documents.get(live.key);
+      const network = readNetworkRule(tool.permissions);
+      if (doc) {
+        documents.set(live.key, { ...doc, html: tool.html, network, settings: resolveToolSettings(tool, settings) });
+        // 重新装过一版才需要换内容；单纯改设置不必 reload，否则用户正在输入的状态会被清掉。
+        if (doc.html !== tool.html) live.win.webContents.reload();
+      }
+      if (live.win.isMinimized()) live.win.restore();
+      live.win.show();
+      live.win.focus();
+      return live.win;
+    }
+  }
+
   const key = randomUUID();
   const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const network = readNetworkRule(tool.permissions);
@@ -177,9 +325,12 @@ export async function loadTool(isolated, tool, visible, settings, options = {}) 
     context: options.context ?? { selection: "", origin: "launcher" },
   });
   const contentsId = win.webContents.id;
-  toolWindows.set(contentsId, { key, toolId: tool.id });
+  toolWindows.set(contentsId, { key, toolId: tool.id, name: tool.name });
+  // 只对可见窗口记账：动作执行用的是隐藏的一次性窗口，不该被"打开"复用。
+  if (visible) visibleWindows.set(tool.id, { win, key });
   win.on("closed", () => {
     documents.delete(key);
+    if (visibleWindows.get(tool.id)?.win === win) visibleWindows.delete(tool.id);
   });
   win.webContents.once("destroyed", () => { toolWindows.delete(contentsId); });
   win.on("page-title-updated", (event) => event.preventDefault());
@@ -197,6 +348,10 @@ export async function loadTool(isolated, tool, visible, settings, options = {}) 
 }
 
 export async function executeAction(isolated, tool, action, input, settings) {
+  // 动作跑在隐藏窗口里，没有"说明页"可看：不兼容就直接报清楚，别让调用方
+  // 收到一个来自空白页的"工具未实现动作"而误以为是工具自己的 bug。
+  const problem = explainIncompatibility(tool);
+  if (problem) throw new Error(`${problem.reason}${problem.hint ? ` ${problem.hint}` : ""}`);
   let timer;
   let win;
   const loading = loadTool(isolated, tool, false, settings);

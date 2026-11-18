@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { defaultRoot, readAppearance, readRecord } from "./catalog.mjs";
 import { createLauncherCatalog, createLauncherStore, createShortcutController } from "./launcher-registry.mjs";
 import { createDesktopBridge } from "./desktop-bridge.mjs";
-import { prepareRuntime, loadTool, readToolWindow, readToolSettings, readToolContext, broadcastToTools } from "./runtime.mjs";
+import { prepareRuntime, loadTool, readToolWindow, readToolSettings, readToolContext, broadcastToTools, closeToolWindows } from "./runtime.mjs";
 import { createToolStorage } from "./tool-storage.mjs";
 import { runCli } from "./cli.mjs";
 
@@ -113,7 +113,7 @@ function describeFile(path, binary) {
  * - 系统信息只给白名单字段，不给进程列表与环境变量全集；
  * - 密钥走 safeStorage，永远不落明文。
  */
-function installToolIpc(root) {
+function installToolIpc(root, onBackgroundChange = () => {}) {
   const storage = createToolStorage(root);
   const context = (event) => {
     const found = readToolWindow(event.sender);
@@ -310,7 +310,7 @@ function installToolIpc(root) {
   });
 
   // 生命周期：通知、常驻、定时。
-  /** 声明了常驻的工具：toolId → { since, reason }。 */
+  /** 声明了常驻的工具：toolId → { since, reason, name, win }。 */
   const keptAlive = new Map();
   /** 定时器：toolId → { timer }。 */
   const schedules = new Map();
@@ -322,16 +322,24 @@ function installToolIpc(root) {
   });
 
   ipcMain.handle("tool:lifecycle:keep-alive", (event, options) => {
-    const { toolId } = context(event);
+    const { toolId, name } = context(event);
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return false;
-    keptAlive.set(toolId, { since: Date.now(), reason: options?.reason });
+    keptAlive.set(toolId, { since: Date.now(), reason: options?.reason, name, win });
     // 用户点关闭时改为隐藏：工具继续活着，但用户感知仍是"关掉了"。
     win.on("close", (closeEvent) => {
       if (!keptAlive.has(toolId)) return;
       closeEvent.preventDefault();
       win.hide();
     });
+    // 真被销毁（卸载工具、退出宿主、从托盘彻底停止）时要销账，否则托盘里会留下
+    // 一个点了没反应的"彻底停止"。
+    win.on("closed", () => {
+      if (keptAlive.get(toolId)?.win !== win) return;
+      keptAlive.delete(toolId);
+      onBackgroundChange();
+    });
+    onBackgroundChange();
     return true;
   });
 
@@ -373,21 +381,51 @@ function installToolIpc(root) {
     return true;
   });
 
+  /**
+   * 彻底停掉一个在后台运行的工具。
+   *
+   * 常驻工具的窗口只是被隐藏，`close` 事件被拦住了——没有这个出口，用户唯一
+   * 能做的就是退出整个工具宿主，代价是别的工具也一起没了。
+   */
+  function stop(toolId) {
+    const entry = keptAlive.get(toolId);
+    if (!entry) return false;
+    keptAlive.delete(toolId);
+    closeToolWindows(toolId);
+    // 记账之外还有一份窗口引用：即便它没进 visibleWindows（早期打开的窗口），
+    // 也一并关掉——"停止"就该真的停。
+    if (entry.win && !entry.win.isDestroyed()) entry.win.destroy();
+    onBackgroundChange();
+    return true;
+  }
+
   /** 卸载工具时把常驻、定时与密钥一起清掉，避免孤儿状态。 */
   return {
+    /** 后台还在跑的工具：托盘菜单与诊断都读它。 */
+    running: () => [...keptAlive].map(([id, info]) => ({ id, name: info.name ?? id, since: info.since })),
+    stop,
     forget(toolId) {
+      const entry = keptAlive.get(toolId);
       keptAlive.delete(toolId);
+      closeToolWindows(toolId);
+      if (entry?.win && !entry.win.isDestroyed()) entry.win.destroy();
       const schedule = schedules.get(toolId);
       if (schedule) {
         clearInterval(schedule.timer);
         schedules.delete(toolId);
       }
+      onBackgroundChange();
     },
   };
 }
 
 function installLauncher(root, isolated) {
-  installToolIpc(root);
+  /**
+   * 托盘菜单要反映"后台在跑什么"，但托盘在下面才创建；这里先留一个可替换的
+   * 刷新入口，回调真正触发时托盘已经在了。
+   */
+  let refreshTray = () => {};
+  const tools = installToolIpc(root, () => refreshTray());
   const store = createLauncherStore(root);
   // 窗口底色跟着主窗主题走：深色默认值，warm（浅色）用原浅底，避免出现瞬间闪白。
   const launcherBackground = () => readAppearance(root).theme === "warm" ? "#f7f8fa" : "#16181f";
@@ -606,11 +644,32 @@ function installLauncher(root, isolated) {
       `${shortcutStart.fallbackFrom} 被占用，已改用 ${shortcuts.state.shortcut}。可在小窗设置里再调。`,
     );
   }
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "打开 AAW 启动器", click: () => showLauncher() },
-    { type: "separator" },
-    { label: "退出工具宿主", click: () => app.quit() },
-  ]));
+  /**
+   * 托盘菜单跟着"后台在跑什么"变。
+   *
+   * 常驻工具点关闭只是隐藏，用户看不见它也找不到它；这里给每个在后台的工具
+   * 一条「彻底停止」，是唯一一个不用退出整个宿主的出口。菜单是快照，所以
+   * 任何一次常驻状态变化都要重建（`onBackgroundChange` 会调到这里）。
+   */
+  function buildTrayMenu() {
+    const running = tools.running();
+    tray?.setContextMenu(Menu.buildFromTemplate([
+      { label: "打开 AAW 启动器", click: () => showLauncher() },
+      ...(running.length
+        ? [
+          { type: "separator" },
+          ...running.map((item) => ({
+            label: `彻底停止「${item.name}」`,
+            click: () => { tools.stop(item.id); },
+          })),
+        ]
+        : []),
+      { type: "separator" },
+      { label: "退出工具宿主", click: () => app.quit() },
+    ]));
+  }
+  refreshTray = buildTrayMenu;
+  buildTrayMenu();
   tray.on("click", () => showLauncher());
 
   /** 把"这次想做什么"抽成纯动作：命令行参数、单实例转发和常驻命令通道共用。 */
@@ -618,6 +677,12 @@ function installLauncher(root, isolated) {
     if (command === "--aaw-guide") { openGuide(); return; }
     if (typeof command === "string" && command.startsWith("--aaw-open=")) {
       void open(`personal:${command.slice(11)}`).catch((error) => dialog.showErrorBox("无法打开 AAW 工具", error.message));
+      return;
+    }
+    // 彻底停止一个在后台运行的工具。没在跑就是空操作——目标状态已经成立，
+    // 不该因为"本来就没开"弹一个错误。
+    if (typeof command === "string" && command.startsWith("--aaw-stop=")) {
+      tools.stop(command.slice(11));
       return;
     }
     if (command === "--aaw-background") return;

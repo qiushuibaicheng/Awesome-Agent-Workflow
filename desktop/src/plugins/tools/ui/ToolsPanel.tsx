@@ -130,6 +130,21 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     }
   }
 
+  /** 彻底停掉常驻工具：关窗只是隐藏，这条才真的退出。 */
+  async function stopBackground(id: string) {
+    if (busy) return;
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      if (!host.isNative()) throw new Error("请在 AAW 桌面版中停止后台工具。");
+      await host.stopToolsElectron(id);
+      // 本来就没在跑时结果也是"不在后台运行"，说同一句话不算骗人。
+      setFeedback({ text: "已停止该工具的后台运行。" });
+    } catch (error) {
+      setFeedback({ text: errorText(error), error: true });
+    } finally { setBusy(false); }
+  }
+
   async function openElectron(id?: string) {
     if (busy) return;
     setBusy(true);
@@ -253,6 +268,11 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     const entries: ContextMenuEntry[] = [
       { id: "manage", label: "管理", onSelect: () => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); } },
       { id: "export", label: "导出源码", disabled: busy, onSelect: () => void exportTool(tool) },
+      // 常驻工具点关闭只是隐藏窗口，进程还活着。不给这条出口，用户只能退出
+      // 整个工具宿主才能停掉它。
+      ...(tool.background
+        ? [{ id: "stop", label: "停止后台运行", onSelect: () => void stopBackground(tool.id) }]
+        : []),
       // 只有"装过至少两次"的工具才有上一版：装坏了这一步能救回来。
       ...(entry?.previousVersion
         ? [{ id: "rollback", label: `退回上一版 v${entry.previousVersion}`, onSelect: () => void rollbackTool(tool.id) }]
@@ -271,6 +291,9 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
   async function confirmRemove(id: string, files: boolean) {
     setRemoving(undefined);
     run(() => service.remove(id));
+    // 卸载之后它的窗口不该继续活着（常驻工具尤其如此）：走同一个停止通道顺手关掉。
+    // 失败不影响卸载本身，最多是那个窗口留到用户自己关。
+    if (host.isNative()) void host.stopToolsElectron(id).catch(() => {});
     if (!files) return;
     const note = await workshop.purge(id);
     setFeedback({ text: `已卸载。${note.text}`, ...(note.error ? { error: true as const } : {}) });
@@ -281,7 +304,11 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)}
     onRollback={() => void rollbackTool(managed.package.id)}
     onSave={(values) => { try { service.saveSettings(managed.package.id, values); setFeedback({ text: "设置已保存，重新打开插件后生效。" }); return true; } catch (error) { setFeedback({ text: errorText(error), error: true }); return false; } }}
-    onRemove={() => run(() => { service.remove(managed.package.id); setView({ kind: "library" }); })}
+    onRemove={() => {
+      run(() => { service.remove(managed.package.id); setView({ kind: "library" }); });
+      // 管理页也是卸载入口，同样要把它的窗口关掉——常驻工具不关就还在后台跑。
+      if (host.isNative()) void host.stopToolsElectron(managed.package.id).catch(() => {});
+    }}
     onUpdate={(file) => { void (async () => { try {
       const tool = await readToolImport(file);
       if (tool.id !== managed.package.id) throw new Error("更新包的插件 ID 必须与当前插件一致。");
@@ -371,6 +398,11 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
                         v{tool.version}
                         {!!tool.actions?.length && <span className="tool-row-tag"><SquareTerminalIcon className="size-3" />{tool.actions.length} 动作</span>}
                         {tool.permissions?.network && <span className="tool-row-tag">可联网</span>}
+                        {/* 这个标记不是装饰：常驻工具关窗后仍在跑，用户得知道
+                            "关掉了"和"真退出了"是两回事。 */}
+                        {tool.background && (
+                          <span className="tool-row-tag" data-hint={`关闭窗口后仍在后台运行：${tool.background.reason ?? "工具声明了常驻"}。可在「⋯」里彻底停止。`}>后台</span>
+                        )}
                       </>
                     )}
                   </span>

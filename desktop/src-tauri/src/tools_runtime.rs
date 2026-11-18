@@ -253,6 +253,23 @@ pub(crate) fn start(app: &AppHandle) {
     }
 }
 
+/// 校验工具 ID 并拼成宿主认识的意图参数。
+///
+/// `--aaw-open=` 与 `--aaw-stop=` 必须用同一套 ID 形状，抽出来免得两处规则漂移
+/// （一个收紧、另一个忘了改，就会留下绕过校验的口子）。
+fn tool_argument(id: &str, flag: &str) -> Result<String, String> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id.as_bytes()[0].is_ascii_alphanumeric()
+        || !id.bytes().all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == b'.' || ch == b'-'
+        })
+    {
+        return Err("工具 ID 无效。".into());
+    }
+    Ok(format!("{flag}{id}"))
+}
+
 #[tauri::command]
 pub fn tools_open_electron(
     window: tauri::WebviewWindow,
@@ -261,21 +278,26 @@ pub fn tools_open_electron(
     if window.label() != "main" {
         return Err("当前窗口无法启动工具。".into());
     }
-    let argument = if let Some(id) = tool_id {
-        if id.is_empty()
-            || id.len() > 64
-            || !id.as_bytes()[0].is_ascii_alphanumeric()
-            || !id.bytes().all(|ch| {
-                ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == b'.' || ch == b'-'
-            })
-        {
-            return Err("工具 ID 无效。".into());
-        }
-        Some(format!("--aaw-open={id}"))
-    } else {
-        None
+    let argument = match tool_id {
+        Some(id) => Some(tool_argument(&id, "--aaw-open=")?),
+        None => None,
     };
     launch(window.app_handle(), argument.as_deref())
+}
+
+/// 彻底停止一个在后台运行的工具。
+///
+/// `aawLifecycle.keepAlive` 的工具点关闭只是隐藏窗口，进程还活着；工具中心与
+/// 托盘用它给用户一个真出口。宿主没在跑时不做任何事——后台自然也没有工具在跑，
+/// 目标状态已经成立，没必要为"停止"去冷启动一个 Electron 进程。
+#[tauri::command]
+pub fn tools_stop_electron(window: tauri::WebviewWindow, tool_id: String) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("当前窗口无法停止工具。".into());
+    }
+    let argument = tool_argument(&tool_id, "--aaw-stop=")?;
+    let _ = send_command(window.app_handle(), Some(&argument));
+    Ok(())
 }
 
 /// 打开「工具开发指导」窗口：复用工具宿主的单实例进程，带 `--aaw-guide`
