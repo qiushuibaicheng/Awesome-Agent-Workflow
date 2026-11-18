@@ -19,7 +19,9 @@ const entries: PersonalTool[] = params.has("empty") ? [] : [
     { id: "label", label: "工作区名称", type: "text", default: "我的工作区" },
     { id: "sort", label: "排序方式", type: "select", default: "original", options: [{ value: "original", label: "保持原序" }, { value: "alpha", label: "按名称排序" }] },
     { id: "copy", label: "处理后自动复制", type: "boolean", default: false },
-  ] } },
+  ] },
+    // 真实安装都会记下来源目录。特意用一条长路径：它曾把管理页撑出横向滚动条。
+    dir: "C:/Users/14993/AppData/Roaming/tools/projects/anonymous/json-formatter" },
   { package: { ...sampleTool, id: "legacy-tool", name: "未声明设置的工具", settingsSchema: [] } },
   // 再多几个：紧凑列表的价值就在于"一屏能看七八个"，只有三个工具看不出密度。
   ...["Markdown 导出", "CSV 拆分", "时间戳转换", "正则测试", "颜色取值", "URL 解析"].map((name, at) => ({

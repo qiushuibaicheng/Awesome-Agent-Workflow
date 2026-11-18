@@ -82,11 +82,14 @@
   .aaw-tools .tools-content { padding: 16px 14px; }
   .aaw-tools .tool-card { padding: 14px; }
 }
-/* ── 插件管理：分组设置排版，不是四张卡片摞起来 ───────────────────────── */
+/* ── 插件管理：可折叠的分组设置，不再是一整页说明书 ───────────────────── */
 .aaw-tools .management-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--color-line); color: var(--color-ink-subtle); font-size: 12px; }
 .aaw-tools .management-nav button { padding: 4px 0; }
-.aaw-tools .management-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px 28px; }
-.aaw-tools .management-inner { max-width: 900px; margin-inline: auto; }
+/* 只保留纵向滚动：overflow-y:auto 会把 overflow-x:visible 计算成 auto，
+   一段没有断行规则的长路径就能让整页多出横向滚动条。根因在内容里修，
+   这里是兜底，保证以后任何新内容都不会再撑出横条。 */
+.aaw-tools .management-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 18px 24px 28px; }
+.aaw-tools .management-inner { max-width: 900px; min-width: 0; margin-inline: auto; }
 .aaw-tools .management-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 2px 0 18px; }
 .aaw-tools .management-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; color: #97a8f7; background: #7284cf1f; border: 1px solid #7284cf33; font-size: 21px; font-weight: 600; line-height: 1; flex: none; }
 .aaw-tools .management-icon.tone-1 { background: #9670ce24; color: #c7abea; border-color: #9670ce3d; }
@@ -100,14 +103,25 @@
 .aaw-tools .management-feedback { padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-info-bg); color: var(--color-ink-subtle); font-size: 12px; margin-bottom: 14px; overflow-wrap: anywhere; }
 .aaw-tools .management-feedback.is-error { color: var(--color-danger-ink); }
 .aaw-tools .management-feedback .mg-actions { margin-top: 8px; }
-/* 一行一节：左列是分组名，右列是内容。细线比卡片边框更轻，视线不用反复跳。 */
-.aaw-tools .mg-row { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 22px; padding: 16px 0; border-top: 1px solid var(--color-line); }
-.aaw-tools .mg-row.is-last { border-bottom: 1px solid var(--color-line); }
-.aaw-tools .mg-label { min-width: 0; }
-.aaw-tools .mg-label-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.aaw-tools .mg-label-head h3 { font-size: 13px; font-weight: 600; color: var(--color-ink); }
-.aaw-tools .mg-label > p { margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
+/* 每节一行标题：整行可点，右侧箭头指示展开态；收起时标题仍带摘要徽标。 */
+.aaw-tools .mg-section { border-top: 1px solid var(--color-line); }
+.aaw-tools .mg-section.is-last { border-bottom: 1px solid var(--color-line); }
+.aaw-tools .mg-section-head { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 13px 4px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.aaw-tools .mg-section-head:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+.aaw-tools .mg-section-head:focus-visible { outline: 2px solid var(--color-info); outline-offset: -2px; }
+.aaw-tools .mg-section-title { flex: 1; min-width: 0; }
+.aaw-tools .mg-section-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.aaw-tools .mg-section-name { font-size: 13px; font-weight: 600; color: var(--color-ink); overflow-wrap: anywhere; }
+.aaw-tools .mg-section-desc { display: block; margin-top: 4px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
 .aaw-tools .mg-badge { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-line); color: var(--color-ink-subtle); font-size: 10px; }
+.aaw-tools .mg-dirty { font-size: 10px; color: var(--color-info); }
+.aaw-tools .mg-chevron { flex: none; display: inline-flex; color: var(--color-ink-subtle); transition: transform .16s ease; }
+.aaw-tools .mg-chevron svg { width: 14px; height: 14px; }
+.aaw-tools .mg-section.is-open .mg-chevron { transform: rotate(90deg); }
+.aaw-tools .mg-panel { min-width: 0; padding: 2px 4px 16px; }
+.aaw-tools .mg-panel[hidden] { display: none; }
+.aaw-tools .mg-section.is-open .mg-panel { animation: mg-panel-in .16s ease-out; }
+@keyframes mg-panel-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 .aaw-tools .mg-content { min-width: 0; }
 .aaw-tools .mg-fields { display: grid; gap: 12px; }
 .aaw-tools .mg-field { display: grid; gap: 6px; }
@@ -122,9 +136,13 @@
 .aaw-tools .mg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .aaw-tools .mg-actions button { padding: 5px 11px; border-radius: 7px; font-size: 12px; min-height: 30px; }
 .aaw-tools .mg-empty { margin: 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--color-ink) 4%, transparent); font-size: 12px; line-height: 1.7; color: var(--color-ink-subtle); }
-.aaw-tools .mg-note { margin-top: 10px; font-size: 11px; line-height: 1.7; color: var(--color-ink-subtle); }
+.aaw-tools .mg-note { margin-top: 10px; font-size: 11px; line-height: 1.7; color: var(--color-ink-subtle); overflow-wrap: anywhere; }
+.aaw-tools .mg-note code { overflow-wrap: anywhere; }
+/* 来源目录用可省略的文本胶囊展示，窄栏不会再撑出横向滚动条。 */
+.aaw-tools .mg-source-dir { min-width: 0; max-width: 100%; }
+.aaw-tools .mg-source-dir .tool-path { margin-top: 8px; }
 .aaw-tools .mg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .mg-files code { padding: 3px 7px; border-radius: 5px; background: var(--color-surface); color: var(--color-ink); }
+.aaw-tools .mg-files code { max-width: 100%; padding: 3px 7px; border-radius: 5px; background: var(--color-surface); color: var(--color-ink); overflow-wrap: anywhere; }
 .aaw-tools .mg-files span { align-self: center; }
 /* AI 动作：一条命令一行，人机共用的"同一件事"要能被看见。 */
 .aaw-tools .mg-actions-list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
@@ -142,8 +160,8 @@
 .aaw-tools .mg-remove { display: flex; flex-wrap: wrap; justify-content: flex-end; }
 .aaw-tools .remove-button { color: var(--color-danger-ink); font-size: 12px; }
 @container (max-width: 560px) {
-  .aaw-tools .mg-row { grid-template-columns: 1fr; gap: 10px; padding: 14px 0; }
-  .aaw-tools .mg-label > p { margin-top: 2px; }
+  .aaw-tools .mg-section-head { padding: 12px 2px; }
+  .aaw-tools .mg-panel { padding: 2px 2px 14px; }
 }
 @container (max-width: 420px) {
   .aaw-tools .management-scroll { padding: 16px 14px 24px; }

@@ -32,6 +32,7 @@ for (const width of [360, 740, 1100]) for (const theme of ["dark", "warm"]) {
     await expect(page.getByRole("combobox", { name: "排序方式" })).toHaveText("按名称排序");
     await expect(page.getByRole("switch")).toBeChecked();
     await page.screenshot({ path: `node_modules/.cache/tools-management-${theme}-${width}.png` });
+    await page.getByRole("button", { name: /卸载插件/ }).click();
     await page.getByRole("button", { name: "卸载", exact: true }).scrollIntoViewIfNeeded();
     await expect(page.getByRole("button", { name: "← 返回工具中心" })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -48,6 +49,20 @@ for (const width of [360, 740, 1100]) for (const theme of ["dark", "warm"]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }
+
+// 管理页里那条长长的来源目录曾经把内容撑宽，overflow-y:auto 又让 overflow-x
+// 变成 auto，于是整页底部多出一条横向滚动条。documentElement 的 scrollWidth
+// 断言抓不到内部滚动容器，所以单独量 .management-scroll。
+test("long source dir never causes a horizontal scrollbar in management", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 850 });
+  await page.goto("/tests/visual/toolsFixture.html");
+  await selectToolAction(page, "JSON 格式化", "管理");
+  await page.getByRole("button", { name: /源码与开发/ }).click();
+  await expect(page.locator(".mg-source-dir .tool-path code")).toHaveAttribute("data-hint", /json-formatter/);
+  expect(await page.locator(".management-scroll").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "node_modules/.cache/tools-management-source-360.png" });
+});
 
 test("exports a downloadable source ZIP with editable HTML and build script", async ({ page }) => {
   await page.goto("/tests/visual/toolsFixture.html?web");

@@ -15,6 +15,7 @@ it("defers a selected source update until dirty settings are explicitly discarde
   const { container } = render(<ToolManagement entry={{ package: sampleTool }} onBack={vi.fn()} onOpen={vi.fn()}
     onExport={vi.fn()} onUpdate={update} onSave={() => true} onRemove={vi.fn()} busy={false} />);
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
+  expandSection(/源码与开发/);
   const file = new File(["{}"], "update.json", { type: "application/json" });
   const picker = container.querySelector('input[type="file"]')!;
   fireEvent.change(picker, { target: { files: [file] } });
@@ -50,6 +51,12 @@ function openCardMenu(name = "JSON 格式化") {
   fireEvent.click(screen.getByRole("button", { name: `更多操作：${name}` }));
 }
 
+/** 管理页现在是折叠分区：想用某个分区里的按钮，先点开它的标题。 */
+function expandSection(name: RegExp) {
+  const head = screen.getByRole("button", { name });
+  if (head.getAttribute("aria-expanded") === "false") fireEvent.click(head);
+}
+
 it("opens Electron directly, routes Manage separately, saves settings and exports source ZIP", async () => {
   const state = createStore<readonly PersonalTool[]>(() => [{ package: sampleTool, settings: { indent: 2 } }]);
   const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn((_id: string, values: ToolSettings) => state.setState([{ package: sampleTool, settings: values }], true)) } satisfies ToolsService;
@@ -63,10 +70,11 @@ it("opens Electron directly, routes Manage separately, saves settings and export
   expect(document.querySelector("iframe")).toBeNull();
   openCardMenu();
   fireEvent.click(screen.getByRole("menuitem", { name: "管理" }));
-  expect(screen.getByRole("heading", { name: "自定义设置" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /自定义设置/ })).toHaveAttribute("aria-expanded", "true");
   fireEvent.change(screen.getByLabelText(/缩进空格数/), { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   expect(service.saveSettings).toHaveBeenCalledWith(sampleTool.id, { indent: 4 });
+  expandSection(/源码与开发/);
   fireEvent.click(screen.getByRole("button", { name: "导出源码 ZIP" }));
   await waitFor(() => expect(write).toHaveBeenCalled());
   const exported = importToolProject(write.mock.calls[0]![1] as Uint8Array);
@@ -80,10 +88,28 @@ it("opens Electron directly, routes Manage separately, saves settings and export
   write.mockRejectedValueOnce(new Error("磁盘无法写入"));
   fireEvent.click(screen.getByRole("button", { name: "导出源码 ZIP" }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("导出失败：磁盘无法写入"));
+  expandSection(/卸载插件/);
   fireEvent.click(screen.getByRole("button", { name: "卸载" }));
   expect(service.remove).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));
   expect(service.remove).toHaveBeenCalledWith(sampleTool.id);
+});
+
+/** 分区默认收起，只留摘要；来源目录是文本胶囊，界面不再写死不存在的文件。 */
+it("collapses secondary sections and shows the source dir as a copyable text path", () => {
+  const dir = "C:/Users/14993/AppData/Roaming/tools/projects/anonymous/json-formatter";
+  render(<ToolManagement entry={{ package: sampleTool, dir }} onBack={vi.fn()} onOpen={vi.fn()}
+    onExport={vi.fn()} onUpdate={vi.fn()} onSave={() => true} onRemove={vi.fn()} busy={false} />);
+  expect(screen.getByRole("button", { name: /自定义设置/ })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: /源码与开发/ })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("button", { name: /AI 动作/ })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("button", { name: /插件信息/ })).toHaveAttribute("aria-expanded", "false");
+  expandSection(/源码与开发/);
+  expect(document.querySelector(`[data-hint="${dir}"]`)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "复制路径" })).toBeTruthy();
+  // 文件清单跟着导出器走：这个工具没有 AGENTS.md，界面就不该凭空写一个。
+  expect(screen.getByText("README.md")).toBeTruthy();
+  expect(screen.queryByText("AGENTS.md")).toBeNull();
 });
 
 /** AI 修不动时不能只留一句话：源码路径要看得见可复制，校验要能自己发起（docs 22 §4 P0-2）。 */
