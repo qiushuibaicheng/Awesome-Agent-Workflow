@@ -17,6 +17,7 @@
     "test:visual": "playwright test",
     "tauri": "tauri",
     "tools:build": "node scripts/build-tools-runtime.mjs",
+    "tools:guide-skill": "node scripts/build-tool-dev-skill.mjs",
     "tools": "node scripts/tools-cli.mjs",
     "tools:launcher": "node scripts/tools-cli.mjs --launcher",
     "tools:test": "node scripts/test-tools-runtime.mjs",

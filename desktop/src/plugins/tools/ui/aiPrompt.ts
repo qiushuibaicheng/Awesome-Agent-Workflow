@@ -73,7 +73,7 @@ export function developerPrompt(): string {
 上行（工具赋值给宿主）：
 - window.aawActions：{ [动作id]: async (input) => 结果 }，界面按钮必须调用同一个函数。
 
-工具包里只放 manifest.json、index.html 与自己的源码：运行框架（tools-runtime/、Tauri 侧、AGENTS.md、README.md）由每台机器的宿主提供，不能改、不能夹带、不能写死本机绝对路径，否则工具就没法在平台上传播（R9）。
+工具包里只放 manifest.json、index.html 与自己的源码：运行框架（tools-runtime/、Tauri 侧、AGENTS.md、README.md）由每台机器的宿主提供，**严禁**改、夹带或伪造。内核契约稳定且只增不减，宿主升级不需要你在代码里做任何适配——不要判断宿主版本，也不要为未来版本写兼容分支（R9）。
 
 ## actions（让 AI 也能调用）
 - 每项形如 { "id": "...", "description": "一句话说明", "inputSchema": { JSON Schema 对象 } }

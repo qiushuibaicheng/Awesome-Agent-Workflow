@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { expect, it } from "vitest";
 import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
 import { platformFrameworkFiles, ruleIds, runToolRules, splitViolations, describeViolations } from "../../../src/plugins/tools/runtime/rules.ts";
-import { toolGuide, repairMessage } from "../../../src/plugins/tools/runtime/guide.ts";
+import { toolGuide, toolGuideSkill, repairMessage } from "../../../src/plugins/tools/runtime/guide.ts";
 
 const tool = (extra: Record<string, unknown> = {}) => parseToolPackage(JSON.stringify({
   schemaVersion: 1,
@@ -107,9 +107,16 @@ it("keeps the manual and the checker on the same rule ids", () => {
   const manual = readFileSync(resolve(process.cwd(), "../skills/tool-dev/SKILL.md"), "utf8");
   const guide = toolGuide({ id: "demo", name: "演示" });
   for (const id of ruleIds) {
-    expect(manual).toContain(`**${id}**`);
+    expect(manual).toContain(`| ${id} |`);
     expect(guide).toContain(`| ${id} |`);
   }
+});
+
+it("the committed skill manual is exactly the generated one (no drift)", () => {
+  // 仓库里的 SKILL.md 是 `npm run tools:guide-skill` 的产物，不允许手改——
+  // 一旦手改就会和运行时写进用户技能目录的版本漂移（历史上真实发生过）。
+  const manual = readFileSync(resolve(process.cwd(), "../skills/tool-dev/SKILL.md"), "utf8");
+  expect(manual).toBe(toolGuideSkill());
 });
 
 it("hands violations back to the agent as repair instructions", () => {
