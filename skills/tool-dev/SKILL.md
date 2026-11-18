@@ -39,11 +39,11 @@ description: 在 AAW 平台上开发个人工具的完整规范。当用户说"�
 
 **为什么**：工具是要在平台上传播的。一个工具导出成一个 ZIP，别人导入后要能直接装、直接跑——前提是每台机器上的 AAW 都提供**同一套运行框架**，工具包里只装工具自己。框架是地基，不是行李。
 
-**框架由宿主提供**：工具窗口的 `aaw-tool://` 协议、CSP 沙箱、独立内存分区、五个 `window.aaw*` 能力注入、窗口尺寸与启动器/命令行，都在桌面端的 `tools-runtime/` 与 Tauri 侧 `tools_runtime.rs` 里。它们不在工具项目里，不要复制、改写或伪造。项目里的 `AGENTS.md`、导出 ZIP 里的 `README.md` 都是平台按工具身份生成的契约文件；`manifest.json` 的字段名、`schemaVersion`、`id` 规则、`html` 必须是整页字符串，也属于同一份契约。
+**框架由宿主提供**：工具窗口的 `aaw-tool://` 协议、CSP 沙箱、独立内存分区、九个 `window.aaw*` 能力注入、窗口尺寸与启动器/命令行，都在桌面端的 `tools-runtime/` 与 Tauri 侧 `tools_runtime.rs` 里。它们不在工具项目里，不要复制、改写或伪造。项目里的 `AGENTS.md`、导出 ZIP 里的 `README.md` 都是平台按工具身份生成的契约文件；`manifest.json` 的字段名、`schemaVersion`、`id` 规则、`html` 必须是整页字符串，也属于同一份契约。
 
 **保留文件名**（不要改、不要塞进 `sourceFiles`、不要另造同名文件）：`AGENTS.md`、`runtime.mjs`、`tool-preload.cjs`、`preload.cjs`、`package-contract.mjs`、`tool-storage.mjs`、`main.mjs`、`catalog.mjs`、`cli.mjs`、`launcher-registry.mjs`、`desktop-bridge.mjs`、`tauri.conf.json`、`capabilities.json`、`tools_runtime.rs`、`Cargo.toml`。这份清单由校验器 `rules.ts` 的 `platformFrameworkFiles` 生成，手册与代码同源。
 
-**改了会怎样**：一旦把框架文件打包进去、自己覆盖 `window.aaw*` 注入、或在 html 里写死本机绝对路径 / `file://` 地址，这个 ZIP 就绑死了你这一台机器和这一版宿主。别人导入后加载不到或行为不一致——工具失去通用性，也就没法在平台上传播。要访问外部资源，走 `aawFiles.open` 让用户当场选，或用五个 `window.aaw*` 入口，不要写死路径。
+**改了会怎样**：一旦把框架文件打包进去、自己覆盖 `window.aaw*` 注入、或在 html 里写死本机绝对路径 / `file://` 地址，这个 ZIP 就绑死了你这一台机器和这一版宿主。别人导入后加载不到或行为不一致——工具失去通用性，也就没法在平台上传播。要访问外部资源，走 `aawFiles.open` 让用户当场选，或用 `window.aaw*` 入口，不要写死路径。
 
 **你能改的**：`manifest.json` 的字段值、`index.html` 的全部内容、可选附加源码与 `NOTES.md`。其余都是宿主的事。
 
@@ -59,23 +59,128 @@ description: 在 AAW 平台上开发个人工具的完整规范。当用户说"�
 | `html` | 是 | 完整自包含 HTML（内联 style 与 script），≤512 KB |
 | `actions` | 否 | 动作数组，见 §4.2；最多 32 个 |
 | `settingsSchema` | 否 | 设置声明，见 §4.3；最多 32 项 |
-| `permissions` | 否 | `{ "network": true }`：声明会联网。详见 R8 |
+| `permissions` | 否 | 联网声明：`true` / `false` / `{ "hosts": [...], "insecure": true }`。详见 R8 |
 | `author` | 否 | 作者或团队名，≤200 字。导入陌生人给的包时用户靠它判断可信度 |
 | `source` | 否 | 来源（仓库地址、内部文档链接），≤200 字 |
 
 ## 4. 运行时能力
 
-工具窗口是沙箱页面：**没有 Node、没有文件系统任意读写、没有 Electron API**。所有能与外界交互的入口都挂在 `window` 上，只有下面五个。
+工具窗口是沙箱页面：**没有 Node、没有文件系统任意读写、没有 Electron API**。所有能与外界交互的入口都挂在 `window` 上，分两个方向：**下行**是宿主注入给工具的，**上行**是工具赋值给宿主的。
 
 ### 4.1 `window.aawSettings` — 只读设置
 
-由 `settingsSchema` 的默认值或用户保存值注入的冻结对象，键就是 schema 的 `id`。
+由 `settingsSchema` 的默认值或用户保存值注入的冻结对象，键就是 schema 的 `id`。工具不能写回——设置由用户在工具中心里改。
 
 ```js
 const indent = window.aawSettings?.indent ?? 2;
 ```
 
-### 4.2 `window.aawActions` — 给 AI 用的动作
+### 4.2 `window.aawStore` — 持久化（跨 AAW 重启保留）
+
+```js
+await aawStore.set("lastQuery", "abc");   // 单键 ≤ 256 KB
+const saved = await aawStore.get("lastQuery"); // 不存在返回 null
+await aawStore.delete("lastQuery");
+const keys = await aawStore.keys();
+```
+
+- 按「工具 id + 当前用户」隔离，别的工具读不到。
+- 单工具上限 5 MB，超了 `set` 抛错，不会静默丢。
+- **要留存的数据一律走这里**（R6）。
+- `aawStore.scope("shared")` 是**用户级共享区**：同一用户的所有工具看到同一份数据。适合"A 工具产出、B 工具消费"。接口与普通 store 完全一样（`set/get/delete/keys`）。
+
+### 4.3 `window.aawFiles` — 文件
+
+```js
+// 选一个文件（默认按文本读）
+const picked = await aawFiles.open({ accept: [".json", ".csv"] }); // { name, path, size, text } | null
+
+// 多选
+const many = await aawFiles.open({ multiple: true, accept: [".csv"] }); // 数组，最多 32 个
+
+// 选目录：只列顶层，最多 200 条
+const dir = await aawFiles.open({ directory: true }); // { name, path, isDirectory: true, entries: [{ name, isDirectory }] }
+
+// 读二进制（图片、xlsx、pdf…）：返回 bytes 而不是 text，上限 32 MB
+const image = await aawFiles.open({ binary: true, accept: [".png"] }); // { name, size, bytes: ArrayBuffer }
+
+// 保存：data 可以是字符串或 ArrayBuffer，上限 8 MB
+await aawFiles.save("result.json", JSON.stringify(data));
+await aawFiles.save("chart.png", pngBytes);
+
+// 拖放：用户把文件拖进窗口时触发
+aawFiles.onDrop(async (files) => {
+  for (const file of files) {
+    const content = await aawFiles.read(file.token); // { name, size, text | bytes }
+    render(file.name, content.text);
+  }
+});
+```
+
+每次调用都由用户亲手确认；**没有"列任意目录""读任意路径"的能力**，也不要假装有。`path` 只用于显示，不能拿去再读别的地方。`read(token)` 只接受 `onDrop` 给的 token，伪造的 token 会抛错。
+
+### 4.4 `window.aawClipboard` — 剪切板
+
+```js
+const text = await aawClipboard.readText();   // 没有文本时返回空串
+await aawClipboard.writeText("结果");          // 上限 1 MB
+
+const image = await aawClipboard.readImage(); // { png: ArrayBuffer } | null
+await aawClipboard.writeImage(pngBytes);      // PNG / JPEG 字节
+```
+
+读/写都走主进程，不要求用户手势，AI 在后台窗口里执行动作时也能用；`navigator.clipboard` 反而拿不到。剪切板历史、复制后清洗、一键复制结果都靠它。读剪切板只在用户点击或动作被显式调用时做，别一加载就静默读取。
+
+### 4.5 `window.aawSystem` — 只读系统信息
+
+```js
+const info = await aawSystem.info();
+// { platform, arch, osVersion, cpus, totalMemory, freeMemory, homedir, tmpdir }
+const disk = await aawSystem.disk(); // { total, free }
+```
+
+**只有白名单字段**：没有进程列表、没有环境变量全集、没有任意路径枚举。
+
+### 4.6 `window.aawSecrets` — 加密存储的密钥
+
+```js
+await aawSecrets.set("apiKey", "sk-…");
+const key = await aawSecrets.get("apiKey"); // 不存在返回 null
+await aawSecrets.delete("apiKey");
+```
+
+走系统加密存储（safeStorage），**磁盘上只有密文**。API Key、Token 放这里，不要写进 html、manifest 或 `aawStore`（R5）。单值上限 64 KB；系统不支持加密时会抛错，这时不要退化成明文存储。
+
+### 4.7 `window.aawLifecycle` — 通知、常驻、定时
+
+```js
+await aawLifecycle.notify("抓取完成", "12 条新数据");
+await aawLifecycle.keepAlive({ reason: "记录剪切板历史" }); // 关窗后继续运行
+await aawLifecycle.schedule(300);                        // 每 300 秒触发一次（≥ 60）
+aawLifecycle.onSchedule(() => refresh());
+```
+
+常驻与定时**必须在清单 `background` 里声明**，安装时会用一句人话展示给用户。没声明就调用，宿主要么忽略要么报错——不要靠"偷偷常驻"实现功能。
+
+### 4.8 `window.aawContext` — 唤起上下文
+
+```js
+const { selection, origin } = window.aawContext; // selection 可能是空串
+const fresh = await aawContext.probe();          // 主动再取一次 { selection, origin }
+```
+
+`origin` 是 `hotkey` / `launcher` / `action`。要这个能力就在清单写 `"needsSelection": true`；`selection` 拿不到时返回空串，工具要能正常降级（要求用户粘贴）。
+
+### 4.9 `window.aawBus` — 工具间广播
+
+```js
+await aawBus.emit("report.ready", { id: 42 });
+const off = aawBus.on("report.ready", (payload) => render(payload));
+```
+
+**纯在线广播，不保留历史**：对方不在线就收不到，不要把它当消息队列用。topic 用 `作者前缀.事件` 的形式，避免与别人的同名。
+
+### 4.10 `window.aawActions` — 给 AI 用的动作（上行）
 
 ```js
 window.aawActions = {
@@ -88,42 +193,12 @@ window.aawActions = {
 - 约束：8 秒内返回；返回值 < 512 KB 且可 JSON 序列化；同一输入应得到同一结果。
 - 动作不能依赖"窗口当前显示什么"，它会在后台窗口里执行。
 
-### 4.3 `window.aawStore` — 持久化（跨 AAW 重启保留）
+### 4.11 其他
 
-```js
-await aawStore.set("lastQuery", "abc");   // 单键 ≤ 256 KB
-const saved = await aawStore.get("lastQuery"); // 不存在返回 null
-await aawStore.delete("lastQuery");
-const keys = await aawStore.keys();
-```
-
-- 按「工具 id + 当前用户」隔离，别的工具读不到。
-- 单工具上限 5 MB，超了 `set` 抛错，不会静默丢。
-- **要留存的数据一律走这里**（R6）。
-
-### 4.4 `window.aawFiles` — 文件
-
-```js
-const picked = await aawFiles.open({ accept: [".json", ".csv"] }); // { name, text } | null
-await aawFiles.save("result.json", JSON.stringify(data));          // 弹系统保存框
-```
-
-每次调用都由用户亲手确认；没有"列目录""读任意路径"的能力，也不要假装有。
-
-### 4.5 `window.aawClipboard` — 剪切板文本
-
-```js
-const text = await aawClipboard.readText();   // 没有文本时返回空串
-await aawClipboard.writeText("结果");          // 上限 1 MB
-```
-
-读/写都走主进程，不要求用户手势，AI 在后台窗口里执行动作时也能用；`navigator.clipboard` 反而拿不到。剪切板历史、复制后清洗、一键复制结果都靠它。读剪切板只在用户点击或动作被显式调用时做，别一加载就静默读取。
-
-### 4.6 其他
-
-- 联网：`fetch` 可用（http/https），但清单必须声明 `permissions.network`（R8）。
+- 联网：`fetch` 可用（http/https）。**不声明 `permissions.network` 也能联网**（默认宽松，保住旧工具），但用户看不到"这个工具会联网"，所以会在校验时收到 R8 提醒。想限定域名写 `{ "network": { "hosts": ["*.corp.example.com"] } }`；要访问自签证书的内网接口再加 `"insecure": true`。
 - `localStorage` / `sessionStorage` / `IndexedDB` 可用，但它们活在**内存分区**里，AAW 重启即清空。只在本次运行内用的临时状态才用它。
 - 窗口尺寸不固定（最小约 360px 宽），布局用 `max-width` / 百分比 / `clamp()`（R7）。
+- 清单里可以写 `requires: { "contract": 1, "capabilities": ["files"] }` 说明最低要求；不写就宽松放行。
 
 ## 5. 红线（R1–R9）
 
@@ -138,7 +213,7 @@ await aawClipboard.writeText("结果");          // 上限 1 MB
 | **R5** | warn | 不得把密钥/口令写进 html | 工具包会被分享，写进去等于公开 | 改成设置项由用户填，或运行时让用户输入 |
 | **R6** | warn | 需要留存的数据走 `aawStore` | localStorage 在内存分区，重启即清空 | `await aawStore.set(k, v)` / `get(k)` |
 | **R7** | warn | 不得写死 ≥800px 的宽度 | 用户可能把窗口缩到 360px | 用 `max-width: 62rem` + `width: 100%` |
-| **R8** | block | 联网必须在清单声明 `permissions.network` | 用户在安装前有权知道这个工具会联网 | 加 `"permissions": { "network": true }` |
+| **R8** | warn | 联网的工具应该声明 `permissions.network` | 用户在安装前有权知道这个工具会联网 | 加 `"permissions": { "network": true }`，或写 hosts 限定域名 |
 | **R9** | block / warn | 不得改动或夹带平台框架与关键契约文件（见 §2.1） | 框架由每台机器的宿主统一提供，绑进工具包就失去通用性，别人装不上也跑不对 | 工具包只留 `manifest.json`、`index.html` 与自己的源码；删掉 `AGENTS.md`/`runtime.mjs` 之类文件，不要写死本机路径 |
 
 ## 6. 交付前自检

@@ -57,12 +57,21 @@ export function developerPrompt(): string {
 - 整个工具包（含 html）不超过 512 KB。
 - 窗口宽度不固定（最小约 360px），布局用 max-width / 百分比，不要写死宽度。
 
-## 能用的五个 window 接口（平台框架提供，不要自己造）
+## 能用的 window 接口（平台框架提供，不要自己造）
+
+下行（宿主注入给工具）：
 - window.aawSettings：只读对象，键就是 settingsSchema 里的 id。
+- window.aawStore：await aawStore.set(k, v) / get(k) / delete(k) / keys()，按工具+用户隔离、上限 5 MB、跨重启保留。要留存的数据一律走它；localStorage 在内存分区里，重启即清空。aawStore.scope("shared") 是用户级共享区，多个工具可见同一份数据。
+- window.aawFiles：await aawFiles.open({ accept, multiple, directory, binary }) 返回文件对象或 null（binary 给 bytes: ArrayBuffer，directory 给 entries）；await aawFiles.save(name, data) 弹保存框，data 可为字符串或 ArrayBuffer；aawFiles.onDrop(list => …) 接住拖入的文件，用 await aawFiles.read(token) 取内容。
+- window.aawClipboard：await aawClipboard.readText() / writeText(text)（上限 1 MB）；await aawClipboard.readImage() 返回 { png: ArrayBuffer } 或 null；aawClipboard.writeImage(bytes) 写图片。
+- window.aawSystem：await aawSystem.info() 给平台/架构/CPU/内存/家目录等只读字段；await aawSystem.disk() 给 { total, free }。没有进程列表与环境变量全集。
+- window.aawSecrets：await aawSecrets.set(k, v) / get(k) / delete(k)，系统加密存储，不落明文。API Key 放这里。
+- window.aawLifecycle：await aawLifecycle.notify(title, body) 弹通知；keepAlive({ reason }) 声明关窗后继续运行；schedule(seconds) 定时（≥60）配 onSchedule(cb)。常驻与定时必须在清单 background 里声明。
+- window.aawContext：{ selection, origin } 加 probe()，需要时在清单写 "needsSelection": true。
+- window.aawBus：await aawBus.emit(topic, payload) / aawBus.on(topic, cb)，工具间在线广播，不保留历史。
+
+上行（工具赋值给宿主）：
 - window.aawActions：{ [动作id]: async (input) => 结果 }，界面按钮必须调用同一个函数。
-- window.aawStore：await aawStore.set(k, v) / get(k) / delete(k) / keys()，按工具+用户隔离、上限 5 MB、跨重启保留。要留存的数据一律走它；localStorage 在内存分区里，重启即清空。
-- window.aawFiles：await aawFiles.open({ accept }) 返回 { name, text } 或 null；await aawFiles.save(name, text) 弹系统保存框。
-- window.aawClipboard：await aawClipboard.readText() 读剪切板文本（没有文本返回空串）；await aawClipboard.writeText(text) 写入，上限 1 MB。
 
 工具包里只放 manifest.json、index.html 与自己的源码：运行框架（tools-runtime/、Tauri 侧、AGENTS.md、README.md）由每台机器的宿主提供，不能改、不能夹带、不能写死本机绝对路径，否则工具就没法在平台上传播（R9）。
 

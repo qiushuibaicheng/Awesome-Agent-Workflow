@@ -109,7 +109,7 @@ function guideBody(context: ToolGuideContext): string {
 
 **平台框架/关键文件的保留名**（不要改、不要塞进 \`sourceFiles\`、不要另造同名文件）：${frameworkFileList()}。
 
-**改了会怎样**：一旦把框架文件打包进去、自己覆盖 \`window.aaw*\` 注入、在 html 里写死本机绝对路径或 \`file://\` 地址，这个 ZIP 就绑死了你这一台机器和这一版宿主。别人导入后要么加载不到、要么行为不一致——工具就失去了通用性，也就没法在平台上传播。要访问外部资源，走 \`aawFiles.open\` 让用户当场选，或用五个 \`window.aaw*\` 入口，而不是写死路径。
+**改了会怎样**：一旦把框架文件打包进去、自己覆盖 \`window.aaw*\` 注入、在 html 里写死本机绝对路径或 \`file://\` 地址，这个 ZIP 就绑死了你这一台机器和这一版宿主。别人导入后要么加载不到、要么行为不一致——工具就失去了通用性，也就没法在平台上传播。要访问外部资源，走 \`aawFiles.open\` 让用户当场选，或用 \`window.aaw*\` 入口，而不是写死路径。
 
 **你能改的**：\`manifest.json\` 里的字段值、\`index.html\` 的全部内容、可选的附加源码与 \`NOTES.md\`。仅此而已——其余都是宿主的事。校验器会把夹带框架文件挡下来（R9，block），把绑本机路径标成建议（R9，warn）。
 
@@ -140,19 +140,38 @@ function guideBody(context: ToolGuideContext): string {
 - \`html\` 是整页字符串：写的时候注意转义，别漏 \`</script>\`。
 - \`settingsSchema\` 的 \`type\` 只能是 text / number / boolean / select；select 要带 \`options\`。
 
-## 运行时能力（只有这五个入口）
+## 运行时能力
+
+**下行**（宿主 → 工具，注入到 \`window\` 上）：
 
 1. \`window.aawSettings\` — 只读设置对象，键是 settingsSchema 的 id。
-2. \`window.aawActions\` — \`{ [actionId]: async (input) => 结果 }\`，界面上按钮必须调用同一个函数；8 秒内返回、结果 < 512 KB、幂等。
-3. \`window.aawStore\` — \`await set(k,v) / get(k) / delete(k) / keys()\`，按工具+用户隔离、上限 5 MB、**跨重启保留**。
-4. \`window.aawFiles\` — \`await open({accept})\` 返回 \`{name,text}|null\`；\`await save(name, text)\` 弹保存框。
-5. \`window.aawClipboard\` — \`await readText()\` 取当前剪切板文本（没有文本返回空串）；\`await writeText(text)\` 写入，上限 1 MB。剪切板历史、复制后清洗、一键复制结果都靠它。
+2. \`window.aawStore\` — \`await set(k,v) / get(k) / delete(k) / keys()\`，按工具+用户隔离、上限 5 MB、**跨重启保留**。\`aawStore.scope("shared")\` 是用户级共享区：多个工具能看到同一份数据，适合"A 工具产出、B 工具消费"。
+3. \`window.aawFiles\` — \`await open({ accept, multiple, directory, binary })\`：
+   - 默认返回 \`{ name, path, size, text }\`，取消返回 \`null\`；
+   - \`multiple: true\` 返回数组（最多 32 个）；
+   - \`directory: true\` 返回 \`{ name, path, isDirectory: true, entries: [{ name, isDirectory }] }\`，只列顶层、最多 200 条；
+   - \`binary: true\` 返回 \`bytes\`（ArrayBuffer，上限 32 MB）而不是 \`text\`；
+   - \`await save(name, data)\`：\`data\` 可以是字符串或 ArrayBuffer，上限 8 MB；
+   - \`onDrop(list => …)\`：用户把文件拖进窗口时触发，每项带 \`token\`，用 \`await read(token)\` 取内容。
+4. \`window.aawClipboard\` — \`readText()\` / \`writeText(text)\`（上限 1 MB）；\`readImage()\` 返回 \`{ png: ArrayBuffer } | null\`；\`writeImage(bytes)\` 写图片。
+5. \`window.aawSystem\` — \`info()\` 给 \`{ platform, arch, osVersion, cpus, totalMemory, freeMemory, homedir, tmpdir }\`；\`disk()\` 给 \`{ total, free }\`。**只读白名单**，没有进程列表、没有环境变量全集。
+6. \`window.aawSecrets\` — \`set(k,v) / get(k) / delete(k)\`，走系统加密存储（safeStorage），**不落明文**。API Key、Token 放这里，不要写进 html 或 \`aawStore\`。
+7. \`window.aawLifecycle\` — \`notify(title, body)\` 弹系统通知；\`keepAlive({ reason })\` 声明关窗后继续运行；\`schedule(seconds)\` 定时（≥ 60 秒）配 \`onSchedule(cb)\` 收回调。**常驻与定时必须在清单 \`background\` 里声明**，否则视为未申请。
+8. \`window.aawContext\` — \`selection\`（唤起时可用的文本，没有就是空串）、\`origin\`（\`hotkey\` / \`launcher\` / \`action\`）、\`probe()\` 主动再取一次。需要它就在清单写 \`"needsSelection": true\`。
+9. \`window.aawBus\` — \`emit(topic, payload)\` / \`on(topic, cb)\`，工具之间在线广播，**不保留历史**（对方不在线就收不到）。
 
-联网可用（http/https），但清单必须声明 \`permissions.network: true\`（R8）。
-\`navigator.clipboard\` 也能用，但它要求用户手势、在 AI 执行的动作里拿不到；优先用 \`aawClipboard\`。
-\`localStorage\` 也能用，但它活在内存分区，AAW 重启会清空——要留存就走 \`aawStore\`（R6）。
-读剪切板只在用户点击或动作被显式调用时做，不要在页面一加载就静默读取。
-窗口宽度不固定（最小约 360px），布局别写死宽度（R7）。
+**上行**（工具 → 宿主）：
+
+10. \`window.aawActions\` — \`{ [actionId]: async (input) => 结果 }\`，界面上按钮必须调用同一个函数；8 秒内返回、结果 < 512 KB、幂等。
+
+补充规则：
+
+- 联网默认可用；想限定域名或主动收紧，在 \`permissions.network\` 里写 \`{ "hosts": ["*.corp.example.com"] }\` 或 \`false\`。要访问自签证书的内网接口再加 \`"insecure": true\`（安装时会提示用户）。
+- \`navigator.clipboard\` 也能用，但它要求用户手势、在 AI 执行的动作里拿不到；优先用 \`aawClipboard\`。
+- \`localStorage\` 也能用，但它活在内存分区，AAW 重启会清空——要留存就走 \`aawStore\`（R6）。
+- 读剪切板只在用户点击或动作被显式调用时做，不要在页面一加载就静默读取。
+- 窗口宽度不固定（最小约 360px），布局别写死宽度（R7）。
+- 清单里可以写 \`requires: { "contract": 1, "capabilities": ["files"] }\` 说明最低要求；不写就宽松放行，导出时平台会自动补上。
 
 ## 红线
 
@@ -169,9 +188,12 @@ ${ruleTable()}
 
 - [ ] 没有任何外部 \`src\` / \`href\`
 - [ ] 每个 action 在 \`aawActions\` 里都有同名函数，界面按钮复用同一函数
-- [ ] 需要留存的数据走 \`aawStore\`
+- [ ] 需要留存的数据走 \`aawStore\`；要跨工具共享才用 \`aawStore.scope("shared")\`
 - [ ] 用到剪切板时是用户主动触发的，不是打开就偷偷读
-- [ ] 没有硬编码密钥
+- [ ] API Key / Token 走 \`aawSecrets\`，没有硬编码在 html 或 manifest 里
+- [ ] 用到的能力名写进了 \`requires.capabilities\`（不写也能跑，但写了别人装之前就知道）
+- [ ] 需要常驻或定时的话，在 \`background\` 里声明了，理由写得让人看得懂
+- [ ] 会联网就按需声明了 \`permissions.network\`（不限域名写 true，限定写 hosts）
 - [ ] 会联网就声明了 \`permissions.network\`
 - [ ] 空输入 / 超长输入 / 非法输入都有提示，不是白屏
 - [ ] 360px 宽下没有横向滚动

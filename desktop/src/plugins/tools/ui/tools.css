@@ -43,6 +43,10 @@
 .aaw-tools .tool-row-name { font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aaw-tools .tool-row-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; line-height: 1.4; color: var(--color-ink-subtle); overflow: hidden; }
 .aaw-tools .tool-row-tag { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+/* 不兼容的工具仍然留在列表里：轻微降透明度 + 去色，一眼看出"这条不能开"但不消失。 */
+.aaw-tools .tool-row.is-broken { opacity: 0.72; }
+.aaw-tools .tool-row.is-broken .tool-symbol { filter: grayscale(1); }
+.aaw-tools .tool-row-tag.is-warn { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-warning-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-warning-ink, var(--color-info)); }
 .aaw-tools .tool-row-actions { display: flex; align-items: center; gap: 2px; flex: none; }
 .aaw-tools .tool-row-open {
   min-height: 26px; padding: 3px 11px; border-radius: 7px; cursor: pointer;

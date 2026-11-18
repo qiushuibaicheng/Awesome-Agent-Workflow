@@ -80,13 +80,29 @@ export function getCatalog(root) {
   const auth = JSON.parse(settings["aaw-desktop.auth.v1"] || "null");
   const library = JSON.parse(settings["aaw-desktop.personal-tools.v1"] || "{}");
   const owner = typeof auth?.user?.id === "string" ? `user:${auth.user.id}` : null;
-  if (!owner) return { signedIn: false, theme, tools: [] };
+  if (!owner) return { signedIn: false, theme, tools: [], broken: [] };
   const recentPath = join(configuration, "tools-recent.json");
   const recent = readRecord(recentPath);
   const items = Object.hasOwn(library, owner) ? library[owner] : [];
+  /**
+   * 读不出来的工具单独列出来，而不是 `return []` 丢掉。
+   *
+   * 启动器仍然只渲染能跑的（`tools`），但会知道"还有 N 个跑不了"——用户不会
+   * 遇到"我明明装过，列表里却没有"这种事却毫无解释。
+   */
+  const broken = [];
   const tools = (Array.isArray(items) ? items : []).flatMap((entry) => {
     const tool = readToolPackage(entry?.package);
-    if (!tool) return [];
+    if (!tool) {
+      const id = typeof entry?.package?.id === "string" ? entry.package.id : "";
+      if (id) broken.push({
+        id,
+        name: typeof entry?.package?.name === "string" && entry.package.name.trim()
+          ? entry.package.name
+          : "无法读取的工具",
+      });
+      return [];
+    }
     const key = `${owner}/${tool.id}`;
     return [{
       tool,
@@ -102,7 +118,7 @@ export function getCatalog(root) {
     }];
   });
   tools.sort((a, b) => b.lastOpened - a.lastOpened || a.tool.name.localeCompare(b.tool.name, "zh-CN"));
-  return { signedIn: true, owner, theme, tools };
+  return { signedIn: true, owner, theme, tools, broken };
 }
 
 export function describeTool(tool) {

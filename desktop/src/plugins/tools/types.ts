@@ -22,10 +22,74 @@ export interface ToolViolation {
   readonly hint: string;
 }
 
+/**
+ * 联网声明。
+ *
+ * `true` 等价于"不限域名的 http(s)"，是历史写法，继续支持；写成对象可以限定
+ * 域名（会转成 CSP 的 `connect-src` 白名单），`insecure` 才放行自签证书。
+ */
+export interface ToolNetworkPermission {
+  /** 允许访问的域名，支持 `*.corp.example.com` 这种通配；省略表示不限。 */
+  readonly hosts?: readonly string[];
+  /** 放行自签证书。安装时会明确警告。 */
+  readonly insecure?: boolean;
+}
+
 /** 工具在运行时申请的能力；安装时会展示给用户。 */
 export interface ToolPermissions {
-  /** 会发起网络请求（http/https）。 */
-  readonly network?: boolean;
+  /** 联网：`true` 不限域名，对象可限定域名或放行自签证书；省略表示不联网。 */
+  readonly network?: boolean | ToolNetworkPermission;
+}
+
+/** 归一化后的联网声明，供校验器、运行时与手册共用。 */
+export interface NetworkRule {
+  /** 清单里是否真的写了 `network`。false 表示"没表态"。 */
+  readonly declared: boolean;
+  readonly enabled: boolean;
+  readonly hosts: readonly string[];
+  readonly insecure: boolean;
+}
+
+/**
+ * 归一化联网声明。
+ *
+ * **没写 `network` 时按"允许"处理**，而不是按"禁止"。这是刻意的取舍：早期工具
+ * 都没写这个字段，一律断网会让存量工具当场静默失效——那正是本轮要消灭的现象。
+ * 想真正收紧的作者可以显式写 `network: false`；校验器会对"看起来在联网却没表态"
+ * 的包给 warn，把声明这件事推给作者，而不是靠运行时突然翻脸。
+ */
+export function readNetworkRule(permissions: ToolPermissions | undefined): NetworkRule {
+  const value = permissions?.network;
+  if (value === undefined) return { declared: false, enabled: true, hosts: [], insecure: false };
+  if (value === false) return { declared: true, enabled: false, hosts: [], insecure: false };
+  if (value === true) return { declared: true, enabled: true, hosts: [], insecure: false };
+  return {
+    declared: true,
+    enabled: true,
+    hosts: Array.isArray(value.hosts) ? value.hosts : [],
+    insecure: value.insecure === true,
+  };
+}
+
+/** 工具包对宿主契约的要求。省略表示"只要清单格式兼容就能跑"。 */
+export interface ToolRequires {
+  /** 最低契约代际。宿主 `toolContractVersion` 低于它就装不上。 */
+  readonly contract?: number;
+  /** 需要的能力名；缺失时按"当前宿主没有这个能力"处理。 */
+  readonly capabilities?: readonly string[];
+}
+
+/**
+ * 后台意图声明。
+ *
+ * 常驻与定时都必须显式声明：用户关掉窗口之后工具还在跑，这件事不能靠作者
+ * 偷偷决定。安装时会用一句人话把这个意图展示出来。
+ */
+export interface ToolBackground {
+  /** 为什么要常驻，写给人看（例如「剪切板历史」）。 */
+  readonly reason?: string;
+  /** 是否需要定时唤醒。最小间隔 1 分钟，实际频率由宿主兜底。 */
+  readonly schedule?: boolean;
 }
 
 export interface ToolPackage {
@@ -48,8 +112,24 @@ export interface ToolPackage {
   readonly author?: string;
   /** 来源说明（仓库地址、内部文档链接等）。 */
   readonly source?: string;
+  /** 对宿主契约的要求。省略即宽松放行。 */
+  readonly requires?: ToolRequires;
+  /** 需要在唤起时带上可用文本（选中内容或剪切板）。声明后才会注入 `aawContext.selection`。 */
+  readonly needsSelection?: boolean;
+  /** 后台意图：常驻理由、是否需要定时。声明后才允许窗口关闭后继续运行。 */
+  readonly background?: ToolBackground;
   /** Additional UTF-8 authoring files. The executable entry remains self-contained html. */
   readonly sourceFiles?: Readonly<Record<string, string>>;
+}
+
+/** 工具被判定为不可用时的记录。保留条目本身，只标记原因——绝不静默丢弃。 */
+export interface ToolBrokenState {
+  /** 给用户看的一句话。 */
+  readonly reason: string;
+  /** 怎么恢复：升级桌面端 / 重新导入 / 卸载。 */
+  readonly hint: string;
+  /** 判定时间（毫秒）。 */
+  readonly at: number;
 }
 
 export type ToolSettingValue = string | number | boolean;
@@ -83,4 +163,18 @@ export interface PersonalTool {
    */
   readonly dir?: string;
   readonly settings?: ToolSettings;
+  /**
+   * 安装时宿主提供的契约代际。
+   *
+   * 存量保护靠它：读取已装工具时，用"它自己安装时的规则"判断，而不是用现行
+   * 规则判死。否则宿主每收紧一条校验，存量工具就会集体消失。
+   */
+  readonly installedContractVersion?: number;
+  /**
+   * 判定为不可用时的原因。
+   *
+   * 有它就说明条目还在、只是跑不了——界面要显示一张说明卡（可看原因、可卸载、
+   * 可重新导入），而不是把它从列表里抹掉。这是"工具神秘消失"的正面解法。
+   */
+  readonly broken?: ToolBrokenState;
 }

@@ -1,7 +1,18 @@
-import type { ToolAction, ToolPackage, ToolViolation } from "../types.ts";
+import type { ToolAction, ToolBackground, ToolPackage, ToolPermissions, ToolRequires, ToolViolation } from "../types.ts";
 import { readSettingsSchema } from "./settings.ts";
 import { readSourceFiles } from "./sourceFiles.ts";
 export { resolveToolSettings, toolSettingsScript } from "./settings.ts";
+export {
+  capabilitiesAt,
+  capabilityEntries,
+  readCapability,
+  toolCapabilities,
+  toolContractVersion,
+} from "./contract.ts";
+export { checkCompatibility, currentHostContract, explainIncompatibility } from "./compat.ts";
+
+/** 域名校验：允许 `*.corp.example.com` 与 `host:port`，挡住会污染 CSP 的字符。 */
+const hostPattern = /^(\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/i;
 
 export const toolPackageLimit = 512 * 1024;
 export const toolIdPattern = /^[a-z0-9][a-z0-9.-]{0,63}$/;
@@ -47,6 +58,48 @@ function objectOf(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+/** 把校验过的 permissions 归一化成可存储的形状（丢掉无效项，不保留脏数据）。 */
+function normalizePermissions(value: unknown): ToolPermissions | undefined {
+  const record = objectOf(value);
+  const network = record?.network;
+  if (network === undefined) return undefined;
+  if (typeof network === "boolean") return { network };
+  const asObject = objectOf(network);
+  if (!asObject) return undefined;
+  const hosts = Array.isArray(asObject.hosts)
+    ? asObject.hosts.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    network: {
+      ...(hosts.length ? { hosts } : {}),
+      ...(asObject.insecure === true ? { insecure: true } : {}),
+    },
+  };
+}
+
+function normalizeRequires(value: unknown): ToolRequires | undefined {
+  const record = objectOf(value);
+  if (!record) return undefined;
+  const capabilities = Array.isArray(record.capabilities)
+    ? record.capabilities.filter((item): item is string => typeof item === "string")
+    : [];
+  const normalized: ToolRequires = {
+    ...(typeof record.contract === "number" ? { contract: record.contract } : {}),
+    ...(capabilities.length ? { capabilities } : {}),
+  };
+  return Object.keys(normalized).length ? normalized : undefined;
+}
+
+function normalizeBackground(value: unknown): ToolBackground | undefined {
+  const record = objectOf(value);
+  if (!record) return undefined;
+  const normalized: ToolBackground = {
+    ...(typeof record.reason === "string" && record.reason.trim() ? { reason: record.reason.trim() } : {}),
+    ...(record.schedule === true ? { schedule: true as const } : {}),
+  };
+  return Object.keys(normalized).length ? normalized : undefined;
 }
 
 function checkSetting(item: unknown, index: number, seen: Set<string>): ToolViolation[] {
@@ -197,9 +250,58 @@ export function validateToolPackage(value: unknown): ToolValidation {
   const permissions = tool.permissions;
   if (permissions !== undefined) {
     const record = objectOf(permissions);
-    if (!record) problems.push(fail("FIELD", "permissions 必须是对象。", "例如 { \"network\": true }。", "permissions"));
-    else if (record.network !== undefined && typeof record.network !== "boolean")
-      problems.push(fail("FIELD", "permissions.network 只能是 true 或 false。", "需要联网写 true，否则删掉这一项。", "permissions.network"));
+    if (!record) problems.push(fail("FIELD", "permissions 必须是对象。", "例如 { \"network\": true } 或 { \"network\": { \"hosts\": [\"*.corp.example.com\"] } }。", "permissions"));
+    else if (record.network !== undefined) {
+      const network = record.network;
+      const asObject = objectOf(network);
+      if (typeof network !== "boolean" && !asObject)
+        problems.push(fail("FIELD", "permissions.network 只能是 true / false，或 { hosts, insecure } 对象。", "不限域名写 true；限定域名写 { \"hosts\": [\"*.corp.example.com\"] }；不要联网写 false。", "permissions.network"));
+      else if (asObject) {
+        if (asObject.hosts !== undefined) {
+          if (!Array.isArray(asObject.hosts) || asObject.hosts.length > 16)
+            problems.push(fail("FIELD", "permissions.network.hosts 必须是 0–16 项数组。", "每个域名写成 \"api.example.com\" 或 \"*.example.com\"；不限域名就删掉 hosts。", "permissions.network.hosts"));
+          else asObject.hosts.forEach((host, index) => {
+            if (typeof host !== "string" || !hostPattern.test(host))
+              problems.push(fail("FIELD", `permissions.network.hosts[${index}] 不是合法域名：${JSON.stringify(host)}。`, "只写域名，可带 *. 前缀与端口；不要写协议、路径或 CIDR 网段。", `permissions.network.hosts[${index}]`));
+          });
+        }
+        if (asObject.insecure !== undefined && typeof asObject.insecure !== "boolean")
+          problems.push(fail("FIELD", "permissions.network.insecure 只能是 true 或 false。", "需要访问自签证书的内网接口才写 true。", "permissions.network.insecure"));
+      }
+    }
+  }
+
+  const requires = tool.requires;
+  if (requires !== undefined) {
+    const record = objectOf(requires);
+    if (!record) problems.push(fail("FIELD", "requires 必须是对象。", "例如 { \"contract\": 1, \"capabilities\": [\"files\"] }；不需要就删掉这个字段。", "requires"));
+    else {
+      if (record.contract !== undefined && (!Number.isInteger(record.contract) || (record.contract as number) < 1 || (record.contract as number) > 999))
+        problems.push(fail("FIELD", "requires.contract 必须是 1–999 的整数。", "写宿主契约代际，例如 1；不确定就删掉这一项。", "requires.contract"));
+      if (record.capabilities !== undefined) {
+        if (!Array.isArray(record.capabilities) || record.capabilities.length > 32)
+          problems.push(fail("FIELD", "requires.capabilities 必须是 0–32 项数组。", "每项是一个能力名，例如 \"files\"、\"clipboard\"。", "requires.capabilities"));
+        else record.capabilities.forEach((item, index) => {
+          if (typeof item !== "string" || !/^[a-z][a-zA-Z.]{0,31}$/.test(item))
+            problems.push(fail("FIELD", `requires.capabilities[${index}] 必须是合法能力名：${JSON.stringify(item)}。`, "例如 \"files\"、\"sharedStore\"；能力名见开发指导手册的「能力表」。", `requires.capabilities[${index}]`));
+        });
+      }
+    }
+  }
+
+  if (tool.needsSelection !== undefined && typeof tool.needsSelection !== "boolean")
+    problems.push(fail("FIELD", "needsSelection 只能是 true 或 false。", "需要在唤起时拿到可用文本才写 true；否则删掉这个字段。", "needsSelection"));
+
+  const background = tool.background;
+  if (background !== undefined) {
+    const record = objectOf(background);
+    if (!record) problems.push(fail("FIELD", "background 必须是对象。", "例如 { \"reason\": \"剪切板历史\", \"schedule\": false }。", "background"));
+    else {
+      if (record.reason !== undefined && (typeof record.reason !== "string" || !record.reason.trim() || record.reason.length > 200))
+        problems.push(fail("FIELD", "background.reason 需要 1–200 字，写给人看。", "例如「记录剪切板历史」——安装时会展示给用户。", "background.reason"));
+      if (record.schedule !== undefined && typeof record.schedule !== "boolean")
+        problems.push(fail("FIELD", "background.schedule 只能是 true 或 false。", "需要定时唤醒才写 true。", "background.schedule"));
+    }
   }
 
   if (problems.length) return { ok: false, violations: problems };
@@ -215,9 +317,12 @@ export function validateToolPackage(value: unknown): ToolValidation {
       ...(readToolIcon(tool.icon) === undefined ? {} : { icon: readToolIcon(tool.icon)! }),
       ...(checkedActions === undefined ? {} : { actions: checkedActions }),
       ...(tool.settingsSchema === undefined ? {} : { settingsSchema: readSettingsSchema(tool.settingsSchema) }),
-      ...(objectOf(permissions)?.network === true ? { permissions: { network: true as const } } : {}),
+      ...(normalizePermissions(tool.permissions) === undefined ? {} : { permissions: normalizePermissions(tool.permissions)! }),
       ...(typeof tool.author === "string" && tool.author.trim() ? { author: tool.author.trim() } : {}),
       ...(typeof tool.source === "string" && tool.source.trim() ? { source: tool.source.trim() } : {}),
+      ...(tool.requires === undefined ? {} : { requires: normalizeRequires(tool.requires) }),
+      ...(tool.needsSelection === true ? { needsSelection: true as const } : {}),
+      ...(normalizeBackground(tool.background) === undefined ? {} : { background: normalizeBackground(tool.background)! }),
       ...(tool.sourceFiles === undefined ? {} : { sourceFiles: readSourceFiles(tool.sourceFiles) }),
     } satisfies ToolPackage,
   };

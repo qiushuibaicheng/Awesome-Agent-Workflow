@@ -355,16 +355,24 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           {/* 紧凑行而不是大卡片：右栏只有 360px 左右，卡片式一屏只能放三个，
               而"打开某个工具"是这一页最高频的动作。一行一个，扫视成本最低。 */}
           <ul aria-label="已安装工具" className="tool-rows">
-            {visible.map(({ package: tool }) => (
-              <li key={tool.id} className={`tool-row ${removing?.id === tool.id ? "is-expanded" : ""}`}>
+            {visible.map(({ package: tool, broken }) => (
+              <li key={tool.id} className={`tool-row ${removing?.id === tool.id ? "is-expanded" : ""} ${broken ? "is-broken" : ""}`}>
                 {/* 图标与底色都由工具 id 决定，与小窗完全一致：字形优先，缺省用名称首字。 */}
                 <span aria-hidden="true" className={`tool-symbol is-row tone-${toneOf(tool.id)}`}>{toolGlyph(tool)}</span>
                 <div className="tool-row-main">
                   <span className="tool-row-name">{tool.name}</span>
-                  <span className="tool-row-meta">
-                    v{tool.version}
-                    {!!tool.actions?.length && <span className="tool-row-tag"><SquareTerminalIcon className="size-3" />{tool.actions.length} 动作</span>}
-                    {tool.permissions?.network && <span className="tool-row-tag">可联网</span>}
+                  {/* 不可用的工具**保留在列表里**，只标记原因——宁可显示一张跑不了的
+                      卡片，也不能让它无声消失。完整说明挂在 data-hint 上。 */}
+                  <span className="tool-row-meta" data-hint={broken ? `${broken.reason}${broken.hint}` : undefined}>
+                    {broken ? (
+                      <span className="tool-row-tag is-warn">不兼容</span>
+                    ) : (
+                      <>
+                        v{tool.version}
+                        {!!tool.actions?.length && <span className="tool-row-tag"><SquareTerminalIcon className="size-3" />{tool.actions.length} 动作</span>}
+                        {tool.permissions?.network && <span className="tool-row-tag">可联网</span>}
+                      </>
+                    )}
                   </span>
                 </div>
                 {removing?.id === tool.id ? (
@@ -381,7 +389,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
                   </div>
                 ) : (
                   <div className="tool-row-actions">
-                    <button type="button" className="tool-row-open" aria-label={`打开 ${tool.name}`} disabled={busy} onClick={() => void openElectron(tool.id)}>打开</button>
+                    <button type="button" className="tool-row-open" aria-label={`打开 ${tool.name}`} disabled={busy || broken !== undefined} data-hint={broken?.hint} onClick={() => void openElectron(tool.id)}>打开</button>
                     <button type="button" className="tool-row-more" aria-label={`更多操作：${tool.name}`} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === tool.id} onClick={(event) => openCardMenu(event, tool)}>⋯</button>
                   </div>
                 )}
