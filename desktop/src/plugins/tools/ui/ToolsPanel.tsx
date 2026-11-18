@@ -11,7 +11,6 @@ import type { ProjectService } from "../../project/service.ts";
 import { exampleTools } from "../runtime/examples.ts";
 import { exportToolProject, readToolUpload } from "../runtime/projectArchive.ts";
 import { readToolDirFiles } from "../runtime/project.ts";
-import { migrateLegacyTools } from "../runtime/project.ts";
 import { ActiveProjectCard, NewToolForm } from "./ToolBuilder.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
 import { ToolPreview } from "./ToolPreview.tsx";
@@ -100,26 +99,22 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
   useEffect(() => { void workshop.refreshProjects(); }, [workshop]);
 
   // 旧版本的工具体存在 configuration 里；首次打开时迁成项目目录（只写不删）。
+  // 交给工坊做：落点必须跟项目列表用同一个账号那层，否则迁出来的目录
+  // 落在 `projects/anonymous/`，用户在「开发工具」里看不见。
   const migrated = useRef(false);
   useEffect(() => {
     if (!project || !host.isNative() || migrated.current || tools.length === 0) return;
     migrated.current = true;
     void (async () => {
       try {
-        const result = await migrateLegacyTools(projectIO(host), tools.map((entry) => entry.package));
+        const result = await workshop.migrateLegacy(tools.map((entry) => entry.package));
         if (result.created.length) {
-          // 迁移出来的目录就是这些工具现在的源码位置：记下来，卡片才能判断
-          // "项目改了没重装"。
-          for (const dir of result.created) {
-            const id = dir.split(/[\\/]/).filter(Boolean).pop();
-            if (id) service.setSource(id, dir);
-          }
           setFeedback({ text: `已把 ${result.created.length} 个旧工具迁成项目目录，可以在「开发工具」里继续开发。` });
           void workshop.refreshProjects();
         }
       } catch { /* 迁移失败不该影响使用，下次打开再试 */ }
     })();
-  }, [host, project, service, tools, workshop]);
+  }, [host, project, tools, workshop]);
 
   function run(action: () => void) {
     setFeedback(undefined);
@@ -187,7 +182,10 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
         lines.push(describeInstall(outcome, upload.tool.name));
         if (upload.tool.permissions?.network) lines.push(`注意：${upload.tool.name} 会联网（作者声明的）。`);
         // 带依赖的包：说清依赖落在哪，用户以后想改/找不到时有个确切位置。
-        if (upload.files) lines.push(`${upload.tool.name} 自带 ${Object.keys(upload.files).length} 个依赖文件，已写入工具目录。`);
+        // 只数 node_modules 下的文件——`files` 里还有 manifest.json、index.html、
+        // AGENTS.md 这些作者自己的文件，把它们说成"依赖"会让用户以为装了个重包。
+        const dependencies = Object.keys(upload.files ?? {}).filter((path) => path.startsWith("node_modules/")).length;
+        if (dependencies) lines.push(`${upload.tool.name} 自带 ${dependencies} 个依赖文件，已写入工具目录。`);
       } catch (error) {
         failures.push(`${file.name}：${errorText(error)}`);
       }

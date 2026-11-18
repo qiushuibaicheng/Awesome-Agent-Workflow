@@ -21,7 +21,9 @@ import type { ProjectService } from "../../project/service.ts";
 import { briefMessage, repairMessage, toolGuideSkill } from "../runtime/guide.ts";
 import {
   checkToolProject, createToolProject, defaultInstalledToolsDir, listToolProjectSummaries,
-  prepareToolDir, readToolProject, renameToolProject, toolProjectIdFromBrief, writeToolFiles,
+  migrateLegacyTools, prepareToolDir, readToolProject, renameToolProject, toolProjectIdFromBrief,
+  writeToolFiles,
+  type LegacyMigration,
   type ToolProjectCheck,
   type ToolProjectIO,
   type ToolProjectSummary,
@@ -102,6 +104,14 @@ export interface WorkshopService {
   /** 选中一个已有项目作为"当前项目"（只校验，不切视图）。 */
   select(dir: string | null): Promise<void>;
   refreshProjects(): Promise<void>;
+  /**
+   * 旧版本工具体迁成项目目录。
+   *
+   * 必须由工坊来做：落点要跟"项目列表"用同一个账号那层。放在面板里调时
+   * 拿不到 owner，只能落到 `projects/anonymous/`——用户在「开发工具」里
+   * 永远看不见这些项目，提示却让他去那里继续开发。
+   */
+  migrateLegacy(tools: readonly ToolPackage[]): Promise<LegacyMigration>;
   /** 卸载清理：删目录与工具数据。返回给用户看的一句话。 */
   purge(id: string): Promise<WorkshopNote>;
   dispose(): void;
@@ -477,6 +487,16 @@ export function createWorkshop(deps: {
     select,
 
     refreshProjects,
+
+    async migrateLegacy(list) {
+      const result = await migrateLegacyTools(io, list, { owner: deps.owner() });
+      // 迁移出来的目录就是这些工具现在的源码位置：记下来，卡片才能判断"项目改了没重装"。
+      for (const dir of result.created) {
+        const id = dir.split(/[\\/]/).filter(Boolean).pop();
+        if (id) tools.setSource(id, dir);
+      }
+      return result;
+    },
 
     async purge(id) {
       const owner = deps.owner() ?? "";

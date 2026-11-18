@@ -38,6 +38,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     resume: idle,
     select: idle,
     refreshProjects: idle,
+    migrateLegacy: () => Promise.resolve({ created: [], skipped: [] }),
     purge: () => Promise.resolve({ text: "已清理。" }),
     dispose: () => {},
   };

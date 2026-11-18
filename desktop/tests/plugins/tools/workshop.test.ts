@@ -3,6 +3,7 @@ import { createStore } from "zustand";
 import type { HostService } from "../../../src/plugins/host/service.ts";
 import type { ProjectService } from "../../../src/plugins/project/service.ts";
 import { memoryToolIO } from "../../../src/plugins/tools/runtime/io.ts";
+import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
 import type { ToolsService } from "../../../src/plugins/tools/service.ts";
 import { createWorkshop, syncToolGuide } from "../../../src/plugins/tools/ui/workshop.ts";
 
@@ -27,11 +28,12 @@ function harness(options: { native?: boolean } = {}) {
     files: { openInFileManager },
   } as unknown as HostService;
 
+  const setSource = vi.fn();
   const tools = {
     state: createStore<readonly never[]>(() => []),
     install: vi.fn(),
     rollback: vi.fn(),
-    setSource: vi.fn(),
+    setSource,
     open: vi.fn(),
     remove: vi.fn(),
     saveSettings: vi.fn(),
@@ -57,7 +59,7 @@ function harness(options: { native?: boolean } = {}) {
   } as unknown as ProjectService;
 
   const workshop = createWorkshop({ tools, project, host, owner: () => "u1" });
-  return { workshop, io, dir, send, openInFileManager, session };
+  return { workshop, io, dir, send, openInFileManager, session, setSource };
 }
 
 /** 让 AI 停下来：工坊的回调是订阅里发的，不等它跑完就断言会读到旧状态。 */
@@ -144,5 +146,27 @@ it("extracts an imported archive into installed/, never into the author's projec
   expect(toolFiles.length).toBeGreaterThan(0);
   expect(toolFiles.filter((path) => path.startsWith("tools/projects/"))).toEqual([]);
   expect(toolFiles.every((path) => path.startsWith("tools/installed/u1/demo/"))).toBe(true);
+  workshop.dispose();
+});
+
+/**
+ * 迁移的落点必须跟项目列表同一个账号层。
+ *
+ * 以前这一步在面板里直接调 `migrateLegacyTools(io, tools)`，没传 owner，
+ * 于是所有旧工具都迁进了 `projects/anonymous/`，而项目列表扫的是
+ * `projects/<账号>/`——用户看到"已把 2 个旧工具迁成项目目录"，去「开发工具」
+ * 里却一个也没有。这条断言盯的就是那个 anonymous 目录不再出现。
+ */
+it("migrates legacy tools into the signed-in account, not into anonymous", async () => {
+  const { workshop, io, setSource } = harness();
+  const tool = parseToolPackage(JSON.stringify({
+    schemaVersion: 1, id: "legacy", name: "旧工具", version: "1.0.0", html: "<p>hi</p>",
+  }));
+  const result = await workshop.migrateLegacy([tool]);
+  expect(result.created).toEqual(["tools/projects/u1/legacy"]);
+  expect(await io.pathExists("tools/projects/u1/legacy/manifest.json")).toBe(true);
+  expect(await io.pathExists("tools/projects/anonymous/legacy/manifest.json")).toBe(false);
+  // 迁出来的目录要登记成这个工具的源码位置，卡片才判得出"项目改了没重装"。
+  expect(setSource).toHaveBeenCalledWith("legacy", "tools/projects/u1/legacy");
   workshop.dispose();
 });
