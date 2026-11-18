@@ -283,6 +283,86 @@ pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
         .map_err(|error| format!("写入文件失败 {path}: {error}"))
 }
 
+/// 写二进制文件（内容以 base64 传入）。
+///
+/// 工具现在可以自带 `node_modules`、图片、wasm，这些都不是 UTF-8 文本，走
+/// `write_text_file` 会把字节改坏。前端解压 ZIP 后逐个调用它落盘，运行时再从
+/// 工具目录加载——所以这里必须保字节原样。
+#[tauri::command]
+pub fn write_binary_file(path: String, base64_contents: String) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let bytes = STANDARD
+        .decode(base64_contents.as_bytes())
+        .map_err(|error| format!("内容不是合法 base64：{error}"))?;
+    let target = std::path::Path::new(&path);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建父目录失败 {}: {error}", parent.display()))?;
+    }
+    std::fs::write(target, bytes)
+        .map_err(|error| format!("写入文件失败 {path}: {error}"))
+}
+
+/// 读二进制文件（返回 base64）。
+///
+/// 导出"带依赖的工具"时用：把工具目录里的 `node_modules` 一起打进 ZIP，接收方
+/// 才能原样跑起来。`limit` 由调用方给（导出上限），避免一次把几百 MB 读进内存。
+#[tauri::command]
+pub fn read_binary_file(path: String, limit: Option<u64>) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let meta = std::fs::metadata(&path)
+        .map_err(|error| format!("读取文件失败 {path}: {error}"))?;
+    if let Some(limit) = limit {
+        if meta.len() > limit {
+            return Err(format!("文件过大，拒绝读取：{path}"));
+        }
+    }
+    let bytes = std::fs::read(&path)
+        .map_err(|error| format!("读取文件失败 {path}: {error}"))?;
+    Ok(STANDARD.encode(bytes))
+}
+
+/// 递归列举工具目录里的**全部**文件（相对路径、`/` 分隔、按路径排序）。
+///
+/// 与 `list_workspace_files` 的关键区别：**不跳过 `node_modules`**。导出"带依赖
+/// 的工具"时必须把这些文件一起打包，否则接收方拿到的包缺依赖、跑不起来。
+/// 上限给得比 @ 提及宽（依赖树本来就深），但仍有封顶，避免一个异常目录把内存打满。
+#[tauri::command]
+pub fn list_tool_files(root: String, limit: Option<usize>) -> Result<Vec<String>, String> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, depth: u32, cap: usize, out: &mut Vec<String>) {
+        if depth > 24 || out.len() >= cap {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(|entry| entry.ok()) {
+            if out.len() >= cap {
+                return;
+            }
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                walk(root, &entry.path(), depth + 1, cap, out);
+            } else if file_type.is_file() {
+                if let Ok(relative) = entry.path().strip_prefix(root) {
+                    out.push(relative.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    let root_path = std::path::PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(format!("不是有效目录：{root}"));
+    }
+    let cap = limit.unwrap_or(20000).min(50000);
+    let mut files: Vec<String> = Vec::new();
+    walk(&root_path, &root_path, 0, cap, &mut files);
+    files.sort();
+    Ok(files)
+}
+
 /// 卸载工具时的清理结果：删了什么、跳过了什么（跳过要能说清原因）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

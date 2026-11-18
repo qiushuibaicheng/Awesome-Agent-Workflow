@@ -40,7 +40,7 @@ export const ruleGuidance: Readonly<Record<RuleId, {
   readonly fix: string;
 }>> = {
   R1: { level: "block", rule: "id 创建后不可改", fix: "继续原工具就保持原 id；确实另起一个就在回复里说明这是新工具" },
-  R2: { level: "block", rule: "界面必须自包含，不得引用外部 script/style", fix: "把依赖源码内联进同一个 <script>/<style>" },
+  R2: { level: "block", rule: "不得引用远程 script/style（相对路径可以）", fix: "把依赖源码内联进同一个 <script>/<style>，或把文件放进工具目录用相对路径引用" },
   R3: { level: "block", rule: "清单声明的动作必须都有实现", fix: "在 <script> 末尾写 window.aawActions = { … }，与界面按钮共用同一函数" },
   R4: { level: "warn", rule: "设置只能经 settingsSchema 声明", fix: "设置写进清单，代码读只读的 window.aawSettings" },
   R5: { level: "warn", rule: "不得把密钥/口令写进 html", fix: "改成设置项由用户填，或运行时让用户输入" },
@@ -55,10 +55,34 @@ export const ruleTitles: Readonly<Record<RuleId, string>> = Object.fromEntries(
   ruleIds.map((id) => [id, ruleGuidance[id].rule]),
 ) as Record<RuleId, string>;
 
-const externalScript = /<script\b[^>]*\bsrc\s*=\s*["'][^"']+["']/i;
-const externalStyle = /<link\b[^>]*\brel\s*=\s*["']?stylesheet/i;
+/** 远程地址：`https:`、`http:` 或协议相对 `//host`。相对路径不算。 */
+const isRemote = (url: string) => /^(?:https?:)?\/\//i.test(url.trim());
+
 const cssImport = /@import\s+(?:url\()?["']?https?:/i;
 const dynamicImport = /\bimport\s*\(\s*["'`]\s*(?:https?:|\/\/)/i;
+
+/**
+ * HTML 里有没有**加载不到**的外部资源。
+ *
+ * 只拦远程地址：以前连 `<script src="./app.js">` 也一律 block，那是因为当时
+ * 工具只能是"一个自包含 html"。现在工具可以带目录（ZIP 里的 js/css/图片随包
+ * 落盘），相对引用是能正常加载的——再按旧规则拦就是一个装不进任何多文件工具
+ * 的假限制。真正加载不到的只有远程资源：它们要么被 CSP 挡掉，要么对方机器
+ * 根本连不上。
+ */
+function hasRemoteAsset(html: string): boolean {
+  for (const match of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']*)["']/gi)) {
+    if (isRemote(match[1]!)) return true;
+  }
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (!/\brel\s*=\s*["']?stylesheet/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1] ?? "";
+    if (isRemote(href)) return true;
+  }
+  return cssImport.test(html) || dynamicImport.test(html);
+}
+
 const remoteFetch = /\b(?:fetch|XMLHttpRequest|EventSource|WebSocket)\b/;
 const localStore = /\b(?:localStorage|sessionStorage)\b/;
 const legacySettingWrite = /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*["'`](?:setting|aaw-settings)/i;
@@ -109,11 +133,11 @@ export function runToolRules(tool: ToolPackage, options: ToolRuleOptions = {}): 
       `二选一：想继续演进原工具就把 id 改回 "${options.previousId}"；确实要另起一个就把 id 保留为新值，并在回复里说明这是新工具。`,
       "manifest.id"));
 
-  // R2 · 外链在沙箱里加载不到，用户看到的是"样式没生效/按钮点不动"的白屏。
-  if (externalScript.test(html) || externalStyle.test(html) || cssImport.test(html) || dynamicImport.test(html))
+  // R2 · 远程资源在沙箱里加载不到，用户看到的是"样式没生效/按钮点不动"的白屏。
+  if (hasRemoteAsset(html))
     problems.push(violation("R2", "block",
-      "HTML 里引用了外部脚本或样式。工具的沙箱不允许外部资源，这些引用加载不到。",
-      "把依赖内联进同一个 <script>/<style>（例如把库源码贴进 html），或改成自己手写的最简实现。",
+      "HTML 里引用了远程脚本或样式。这些资源要么被 CSP 挡掉，要么对方机器根本连不上。",
+      "把依赖内联进同一个 <script>/<style>，或把文件放进工具目录并用相对路径引用（\"./app.js\"），或改成自己手写的最简实现。",
       "index.html"));
 
   // R3 · 清单声明了动作却没挂实现，AI 一调用就报"工具未实现动作"。

@@ -108,6 +108,22 @@ export interface HostRuntime {
   readTextFile(path: string): Promise<string>;
   /** 写入 UTF-8 文本文件（自动创建父目录）。 */
   writeTextFile(path: string, contents: string): Promise<void>;
+  /**
+   * 写入二进制文件（内容以 base64 传入，自动创建父目录）。
+   *
+   * 工具可以自带 `node_modules`、图片、wasm，这些不是 UTF-8 文本，走
+   * `writeTextFile` 会把字节改坏。ZIP 导入解压后逐个落盘用它。
+   */
+  writeBinaryFile?(path: string, base64: string): Promise<void>;
+  /** 读取二进制文件（base64）；超过 `limit` 字节时报错，避免把大文件读进内存。 */
+  readBinaryFile?(path: string, limit?: number): Promise<string>;
+  /**
+   * 递归列举目录内全部文件（相对路径、`/` 分隔）。
+   *
+   * 与 `listWorkspaceFiles` 的区别：**不跳过** `node_modules`——导出带依赖的
+   * 工具时必须把依赖一起打包。
+   */
+  listToolFiles?(root: string, limit?: number): Promise<readonly string[]>;
   /** Resolve a namespaced user data directory; both arguments are single safe segments. */
   userDataDir(namespace: string, directory: string): Promise<string>;
   /**
@@ -302,7 +318,9 @@ export type AccountHost = Pick<
 
 export type SkillFiles = Pick<
   HostRuntime,
-  "userDataDir" | "listDirNames" | "pathExists" | "copyDir" | "writeTextFile" | "toolPurge" | "moveToolPath"
+  | "userDataDir" | "listDirNames" | "pathExists" | "copyDir" | "writeTextFile" | "toolPurge" | "moveToolPath"
+  // 工具带依赖之后要落二进制（node_modules / 图片 / wasm）并整树导出
+  | "writeBinaryFile" | "readBinaryFile" | "listToolFiles"
 >;
 
 /**

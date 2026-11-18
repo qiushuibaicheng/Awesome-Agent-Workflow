@@ -29,14 +29,18 @@ it("R1 blocks renaming an installed tool", () => {
   expect(problems[0]!.hint).toContain("older-id");
 });
 
-it("R2 blocks external scripts and styles, because the sandbox cannot load them", () => {
+it("R2 blocks remote scripts and styles, because the sandbox cannot load them", () => {
   const external = tool({ html: '<script src="https://cdn.example/x.js"></script>' });
   expect(ids(runToolRules(external))).toContain("R2");
-  const linked = tool({ html: '<link rel="stylesheet" href="theme.css"><p>x</p>' });
+  const linked = tool({ html: '<link rel="stylesheet" href="//cdn.example/theme.css"><p>x</p>' });
   expect(ids(runToolRules(linked))).toContain("R2");
   // `<script src=>` 只是脚本字符串里的普通文本，不该被当成外链。
   expect(ids(runToolRules(tool({ html: "<script>const s='<script src=>'</script>" }))))
     .not.toContain("R2");
+  // 相对路径是工具目录内的文件，ZIP 导入会一起落盘——这不是"加载不到的外部资源"。
+  expect(ids(runToolRules(tool({
+    html: '<link rel="stylesheet" href="./app.css"><script src="./app.js"></script>',
+  })))).not.toContain("R2");
 });
 
 it("R3 blocks actions that were declared but never implemented", () => {

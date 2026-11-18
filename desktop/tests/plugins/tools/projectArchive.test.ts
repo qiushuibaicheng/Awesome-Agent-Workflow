@@ -39,11 +39,12 @@ it("preserves author scaffold files without exporting case-insensitive duplicate
   expect(importToolProject(exportToolProject(imported)).sourceFiles).toEqual(imported.sourceFiles);
 });
 
-it("rejects traversal, ambiguous archives, oversized expansion and invalid setting schemas", () => {
+it("rejects traversal, ambiguous archives and invalid setting schemas", () => {
   const files = unzipSync(exportToolProject(sampleTool));
   expect(() => importToolProject(zipSync({ ...files, "../secret": strToU8("x") }))).toThrow("路径");
   expect(() => importToolProject(zipSync({ ...files, "other/manifest.json": files["manifest.json"]! }))).toThrow("唯一");
-  expect(() => importToolProject(zipSync({ ...files, "bomb.txt": new Uint8Array(2 * 1024 * 1024) }))).toThrow("解压后");
+  // 上限是 32 MB：这里造一个超限的条目，确认它仍然会被拦下来。
+  expect(() => importToolProject(zipSync({ ...files, "bomb.bin": new Uint8Array(33 * 1024 * 1024) }))).toThrow("解压后");
   expect(() => parseToolPackage(JSON.stringify({ ...sampleTool, settingsSchema: [{ id: "bad", type: "number", label: "Bad", default: 9, max: 2 }] }))).toThrow();
 });
 
@@ -69,11 +70,13 @@ it("rejects Windows-invalid source filenames in JSON packages and ZIP projects",
   expect(importToolProject(exportToolProject(tool)).sourceFiles?.[path]).toBe("// source");
 });
 
-it("roundtrips a valid project with all 64 source file slots occupied", () => {
-  const sourceFiles = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`src/file-${index}.txt`, `file ${index}`]));
+it("roundtrips a project with many source files without losing any of them", () => {
+  // 配额从 64 抬到 512：工具带 node_modules 之后，手写模块不再只有两三个。
+  const sourceFiles = Object.fromEntries(Array.from({ length: 200 }, (_, index) => [`src/file-${index}.txt`, `file ${index}`]));
   const tool = parseToolPackage(JSON.stringify({ ...sampleTool, sourceFiles }));
   const restored = importToolProject(exportToolProject(tool));
-  expect(restored.sourceFiles).toEqual(sourceFiles);
+  // 导出的包会带一份生成出来的 README.md，所以按子集断言——重点是作者文件一个没丢。
+  expect(restored.sourceFiles).toMatchObject(sourceFiles);
   expect(restored.html).toBe(tool.html);
 });
 

@@ -13,15 +13,15 @@
  * - `brief`：用户写的需求原文，只用于建项目与首条消息。
  */
 import { createStore } from "zustand";
-import { pathKey } from "../../../shared/panelPaths.ts";
+import { joinPath, pathKey } from "../../../shared/panelPaths.ts";
 import { createSnapshotView } from "../../../shared/state/readonlySnapshot.ts";
 import type { ReadonlySnapshot } from "../../../shared/state/readonlySnapshot.ts";
 import type { HostService } from "../../host/service.ts";
 import type { ProjectService } from "../../project/service.ts";
 import { briefMessage, repairMessage, toolGuideSkill } from "../runtime/guide.ts";
 import {
-  checkToolProject, createToolProject, listToolProjectSummaries,
-  renameToolProject, toolProjectIdFromBrief,
+  checkToolProject, createToolProject, defaultInstalledToolsDir, listToolProjectSummaries,
+  prepareToolDir, readToolProject, renameToolProject, toolProjectIdFromBrief, writeToolFiles,
   type ToolProjectCheck,
   type ToolProjectIO,
   type ToolProjectSummary,
@@ -85,6 +85,14 @@ export interface WorkshopService {
   create(): Promise<void>;
   verify(dir?: string): Promise<ToolProjectCheck | null>;
   install(): Promise<boolean>;
+  /**
+   * 安装一个从文件 / 压缩包读出来的工具。
+   *
+   * 为什么不能直接 `tools.install()`：带依赖的包（`node_modules`、图片、wasm）
+   * 没法只写进配置——那些必须落在工具目录里，运行时才 `require` 得到。所以路径是
+   * 「先把文件写进目录 → 再从目录读回清单 → 带着目录安装」。
+   */
+  installArchive(tool: ToolPackage, files?: Readonly<Record<string, Uint8Array>>): Promise<InstallOutcome>;
   /** 退回上一版（覆盖安装前落盘的副本）。 */
   rollback(id: string): Promise<WorkshopNote>;
   /** 改显示名 / 改目录名（= 改 id）。 */
@@ -338,6 +346,23 @@ export function createWorkshop(deps: {
     }
   }
 
+  async function installArchive(tool: ToolPackage, files?: Readonly<Record<string, Uint8Array>>): Promise<InstallOutcome> {
+    // 只有清单与页面的包走原路径：不建目录、不碰磁盘，行为和以前一模一样。
+    if (!files || !Object.keys(files).length) return tools.install(tool, true);
+    // 解到 `installed/` 而不是 `projects/`：前者是我们的运行副本（卸载可删），
+    // 后者是用户自己的源码（永远不替用户删）。混在一起，两个方向都会做错。
+    const parent = await defaultInstalledToolsDir(io, deps.owner());
+    const dir = await prepareToolDir(io, { id: tool.id, parent });
+    await writeToolFiles(io, dir, files);
+    // 以磁盘上的那份为准重新读一次：清单可能与 ZIP 里的不一致（比如 AI 顺手改了 id），
+    // 与其装进去两份不一样的东西，不如当场让校验说话。
+    const read = await readToolProject(io, dir);
+    if (!read.ok) throw new Error(`文件已写入 ${dir}，但目录里的清单校验不通过：${read.violations[0]?.message ?? "原因未知"}`);
+    const outcome = tools.install(read.tool, true, dir);
+    void refreshProjects();
+    return outcome;
+  }
+
   return {
     state: view.snapshot,
     setBrief(value) { patch({ brief: value }); },
@@ -390,6 +415,7 @@ export function createWorkshop(deps: {
 
     verify,
     install,
+    installArchive,
 
     async rollback(id) {
       try {
@@ -454,13 +480,26 @@ export function createWorkshop(deps: {
 
     async purge(id) {
       const owner = deps.owner() ?? "";
-      const dirs = (await listToolProjectSummaries(io, { owner }))
+      const projectDirs = (await listToolProjectSummaries(io, { owner }))
         .filter((entry) => entry.id === id)
         .map((entry) => entry.dir);
+      /**
+       * 运行副本也一起清：ZIP 装进来的工具可能带着 `node_modules`（几十到几百 MB），
+       * 只删注册表等于把它们永久留在磁盘上。
+       *
+       * 只认两种来源，别的路径一概不传给宿主：
+       * - `projects/<账号>/<id>`：用户自己建的项目（在这里出现的才说明它就是这个工具）；
+       * - `installed/<账号>/<id>`：我们自己解压出来的副本，路径可推算。
+       * 用户选了别处的目录当运行目录（`setSource`）时，那条路径不会出现在这里，
+       * 所以永远不会被误删。
+       */
+      const dirs = [...projectDirs];
+      const installedDir = joinPath(await defaultInstalledToolsDir(io, owner), id);
+      if (await io.pathExists(installedDir)) dirs.push(installedDir);
       try {
         const report = await host.skills.toolPurge({ toolId: id, owner, projectDirs: dirs });
         const parts: string[] = [];
-        if (report.removedDirs.length) parts.push(`已删除 ${report.removedDirs.length} 个项目目录`);
+        if (report.removedDirs.length) parts.push(`已删除 ${report.removedDirs.length} 个目录（源码或运行副本，含 node_modules）`);
         if (report.removedData) parts.push("已删除工具数据");
         if (report.skippedDirs.length) parts.push(`${report.skippedDirs.length} 个目录没有删除（不在受管目录内，或不是这个工具）`);
         if (store.getState().project && dirs.includes(store.getState().project!.dir))

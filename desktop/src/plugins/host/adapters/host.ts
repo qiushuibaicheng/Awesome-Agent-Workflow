@@ -109,6 +109,15 @@ export function createTauriHost(invoke: NativeInvoke = defaultInvoke): HostRunti
     async writeTextFile(path, contents) {
       await invoke<null>("write_text_file", { path, contents });
     },
+    async writeBinaryFile(path, base64) {
+      await invoke<null>("write_binary_file", { path, base64Contents: base64 });
+    },
+    async readBinaryFile(path, limit) {
+      return invoke<string>("read_binary_file", { path, limit: limit ?? null });
+    },
+    async listToolFiles(root, limit) {
+      return invoke<string[]>("list_tool_files", { root, limit: limit ?? null });
+    },
     async userDataDir(namespace, directory) {
       return invoke<string>("user_data_dir", { namespace, directory });
     },

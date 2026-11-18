@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, safeStorage, Tray, screen } from "electron";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { arch, cpus, freemem, homedir, platform, release, tmpdir, totalmem } from "node:os";
 import { createConnection } from "node:net";
 import { basename, join } from "node:path";
@@ -15,6 +15,25 @@ const args = process.argv.slice(1);
 const cliMarker = args.indexOf("--aaw-cli");
 const launcherFile = join(import.meta.dirname, "launcher.html");
 const guideFile = join(import.meta.dirname, "guide.html");
+
+/**
+ * 主进程崩溃兜底：写进数据目录的日志，再弹一个能看懂的框。
+ *
+ * 为什么必须有：这个进程是 GUI 子系统启动的，**stderr 没有地方可去**。以前主
+ * 进程里任何一处未捕获异常，用户只看到一个标题为 "Error" 的系统框、内容一行
+ * "A JavaScript error occurred in the main process"，我们这边什么都收不到。
+ * 日志文件与 Rust 侧 spawn 失败写的是同一个（`<数据目录>/tools-runtime.log`）。
+ */
+function logCrash(label, error) {
+  const detail = error?.stack ?? String(error);
+  try {
+    appendFileSync(join(defaultRoot(), "tools-runtime.log"), `[${new Date().toISOString()}] ${label}: ${detail}\n`);
+  } catch { /* 连日志都写不了就只能靠弹框了 */ }
+  try { dialog.showErrorBox("AAW 工具宿主出错", `${label}\n\n${detail}`); } catch { /* 早期阶段 dialog 可能不可用 */ }
+}
+
+process.on("uncaughtException", (error) => logCrash("uncaughtException", error));
+process.on("unhandledRejection", (reason) => logCrash("unhandledRejection", reason));
 
 /** 系统通知：拿不到通知权限或平台不支持时静默跳过，不因为提示失败而影响启动。 */
 function notify(title, body) {
@@ -430,7 +449,7 @@ function installLauncher(root, isolated) {
   // 窗口底色跟着主窗主题走：深色默认值，warm（浅色）用原浅底，避免出现瞬间闪白。
   const launcherBackground = () => readAppearance(root).theme === "warm" ? "#f7f8fa" : "#16181f";
   const catalog = createLauncherCatalog(root, store, {
-    openTool: (tool, settings) => loadTool(isolated, tool, true, settings), openDesktop: createDesktopBridge(),
+    openTool: (tool, settings, dir) => loadTool(isolated, tool, true, settings, { dir }), openDesktop: createDesktopBridge(),
   });
   /**
    * 工具开发指导：一个正经的文档窗口。
@@ -676,7 +695,14 @@ function installLauncher(root, isolated) {
   function applyIntent(command) {
     if (command === "--aaw-guide") { openGuide(); return; }
     if (typeof command === "string" && command.startsWith("--aaw-open=")) {
-      void open(`personal:${command.slice(11)}`).catch((error) => dialog.showErrorBox("无法打开 AAW 工具", error.message));
+      void open(`personal:${command.slice(11)}`).catch((error) => {
+        // 只弹框不留痕迹，用户报"打不开"时我们连一句话都拿不到——日志和数据目录
+        // 同级，和 Rust 侧的 spawn 失败写同一个文件。
+        try {
+          appendFileSync(join(root, "tools-runtime.log"), `[${new Date().toISOString()}] open ${command}: ${error?.stack ?? error}\n`);
+        } catch { /* 写不了日志也不能再抛一层 */ }
+        dialog.showErrorBox("无法打开 AAW 工具", error.message);
+      });
       return;
     }
     // 彻底停止一个在后台运行的工具。没在跑就是空操作——目标状态已经成立，

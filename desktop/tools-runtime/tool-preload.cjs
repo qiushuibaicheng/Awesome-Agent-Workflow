@@ -1,14 +1,20 @@
-// 工具窗口专用 preload。沙箱里只能用内置的 CommonJS 桥。
+/* global document */
+// 工具窗口专用 preload。
 //
 // 能力分两类，架构上必须分清：
 // - **下行**（宿主 → 工具）：settings / store / files / clipboard / system /
 //   secrets / lifecycle / context / bus —— 全部走 contextBridge 暴露；
 // - **上行**（工具 → 宿主）：aawActions —— 工具自己赋值，宿主反向读取执行。
 //
-// 硬底线只有一条：没有 Node、没有任意路径读写。文件只能来自"用户亲手选"
-// 或"用户亲手拖进来"，域名只能来自清单声明。
+// Node 只活在这一层。窗口是 `sandbox: false`（否则 preload 连 `require` 都没有），
+// 但 `contextIsolation: true` + `nodeIntegration: false` 保证**页面主世界拿不到
+// Node**：作者自带的 `preload.js` 里可以 `require("ssh2")`，页面里不行，必须
+// 由作者显式 expose 出来。这是「工具能带依赖」和「页面别直接握着 fs」之间的分界。
+//
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { resolve, sep } = require("node:path");
 
 const keyArg = process.argv.find((item) => typeof item === "string" && item.startsWith("--aaw-tool-key="));
 const key = keyArg ? keyArg.slice("--aaw-tool-key=".length) : "";
@@ -97,8 +103,9 @@ expose("aawFiles", {
       if (!files.length) return;
       try {
         const list = files.map((file) => {
-          let path = "";
-          try { path = webUtils.getPathForFile(file); } catch { path = ""; }
+          const path = (() => {
+            try { return webUtils.getPathForFile(file) || ""; } catch { return ""; }
+          })();
           const token = path ? `drop-${++tokenSeed}` : "";
           if (path) dropped.set(token, path);
           return { name: file.name, size: file.size, type: file.type || "", token, isDirectory: false };
@@ -175,3 +182,46 @@ expose("aawBus", {
     return () => { busListeners.get(topic)?.delete(callback); };
   },
 });
+
+/**
+ * 作者自带的 preload。
+ *
+ * 跑到这里时宿主能力已经全部就位，作者的脚本可以放心 `require` 自己的依赖。
+ * 为什么要 `require(绝对路径)` 而不是复制代码进来：CommonJS 会以**被加载文件
+ * 所在目录**为基准去解析依赖，所以作者写 `require("ssh2")` 时，Node 找的正是
+ * `<工具目录>/node_modules/ssh2` —— 不需要我们做任何路径映射。
+ *
+ * 失败只记日志、不抛出：作者写错一行不该让整个窗口白屏，页面本身还是能用的。
+ */
+const argOf = (prefix) => {
+  const found = process.argv.find((item) => typeof item === "string" && item.startsWith(prefix));
+  return found ? found.slice(prefix.length) : "";
+};
+
+const toolDir = argOf("--aaw-tool-dir=");
+const toolPreload = argOf("--aaw-tool-preload=");
+
+if (toolDir && toolPreload) {
+  try {
+    const root = resolve(toolDir);
+    const target = resolve(root, toolPreload);
+    if (target === root || !target.startsWith(root + sep)) throw new Error("preload 路径必须落在工具目录内。");
+    /**
+     * 给作者一个比 `contextBridge` 更直白的出口。
+     *
+     * `contextIsolation: true` 下 preload 的 `window` 和页面的 `window` 不是
+     * 同一个对象，直接 `window.services = …` 页面看不见——这正是最容易踩的坑，
+     * 所以这里提供 `aawBridge.expose(name, api)`，语义与页面侧的 `window[name]`
+     * 一一对应。
+     */
+    globalThis.aawBridge = {
+      expose: (name, api) => expose(name, api),
+      /** 工具自己的目录，读写自己的文件时用它，不要猜。 */
+      dir: root,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require(target);
+  } catch (error) {
+    console.error("[aaw] 工具 preload 执行失败：", error);
+  }
+}

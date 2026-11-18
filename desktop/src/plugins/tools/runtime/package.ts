@@ -1,6 +1,17 @@
 import type { ToolAction, ToolBackground, ToolPackage, ToolPermissions, ToolRequires, ToolViolation } from "../types.ts";
 import { readSettingsSchema } from "./settings.ts";
-import { readSourceFiles } from "./sourceFiles.ts";
+import { readSourceFiles, safeSourcePath } from "./sourceFiles.ts";
+/**
+ * 运行时（`tools-runtime/runtime.mjs`）也从 `package-contract.mjs` 取这个函数。
+ *
+ * `readNetworkRule` 的定义在顶层 `types.ts`，而 `package.ts` 是本文件的入口，
+ * esbuild 只按这里的导出产 bundle——少了这一行，产物里就没有这个导出，
+ * `runtime.mjs` 的顶层 import 会在加载阶段直接抛
+ * `does not provide an export named 'readNetworkRule'`，表现是工具窗口一片空白、
+ * 标题变成 "Error"，日志里什么都没有。改动这里时务必同步检查
+ * `runtime.mjs` / `cli.mjs` 从 `package-contract.mjs` 引用的每一个名字。
+ */
+export { readNetworkRule } from "../types.ts";
 export { resolveToolSettings, toolSettingsScript } from "./settings.ts";
 export {
   capabilitiesAt,
@@ -14,7 +25,15 @@ export { checkCompatibility, currentHostContract, explainIncompatibility } from 
 /** 域名校验：允许 `*.corp.example.com` 与 `host:port`，挡住会污染 CSP 的字符。 */
 const hostPattern = /^(\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/i;
 
-export const toolPackageLimit = 512 * 1024;
+/**
+ * 清单（含 html 快照）的体积上限。
+ *
+ * 从 512 KB 抬到 4 MB：工具开始能带 `node_modules` 之后，`index.html` 常常是
+ * 构建产物（Vite 打出的单文件通常几百 KB 到 2 MB）。真正的重货（`node_modules`、
+ * 图片、wasm）不进清单，它们躺在工具目录里，所以这个上限不必开到几十 MB——
+ * 清单仍然要塞进 `preferences.json`，开太大等于让启动器每次唤起都读一个大文件。
+ */
+export const toolPackageLimit = 4 * 1024 * 1024;
 export const toolIdPattern = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 const settingIdPattern = /^[a-z][a-z0-9.-]{0,63}$/;
 
@@ -217,7 +236,15 @@ export function validateToolPackage(value: unknown): ToolValidation {
 
   const sourceFiles = tool.sourceFiles;
   if (sourceFiles !== undefined && !readSourceFiles(sourceFiles))
-    problems.push(fail("FIELD", "sourceFiles 必须是 路径 → UTF-8 文本 的对象（最多 64 个文件、合计 512 KB、路径安全）。", "路径不要以点或空格结尾，也不要出现 manifest.json / index.html。", "sourceFiles"));
+    problems.push(fail("FIELD", "sourceFiles 必须是 路径 → UTF-8 文本 的对象（最多 512 个文件、合计 4 MB、路径安全）。", "路径不要以点或空格结尾，也不要出现 manifest.json / index.html；二进制文件与 node_modules 请直接放进工具目录，不要写进清单。", "sourceFiles"));
+
+  const preload = tool.preload;
+  if (preload !== undefined) {
+    if (typeof preload !== "string" || !preload.trim())
+      problems.push(fail("FIELD", "preload 必须是相对路径字符串，例如 \"preload.js\"。", "不需要 Node 能力就删掉这个字段。", "preload"));
+    else if (!safeSourcePath(preload) || preload.toLowerCase() === "index.html" || preload.toLowerCase() === "manifest.json")
+      problems.push(fail("FIELD", `preload 不是合法的工具内相对路径：${JSON.stringify(preload)}。`, "只能写工具目录内的 .js 文件，例如 \"preload.js\" 或 \"bridge/main.js\"。", "preload"));
+  }
 
   if (tool.icon !== undefined && readToolIcon(tool.icon) === undefined) {
     const count = typeof tool.icon === "string" ? [...tool.icon.trim()].length : 0;
@@ -323,6 +350,7 @@ export function validateToolPackage(value: unknown): ToolValidation {
       ...(tool.requires === undefined ? {} : { requires: normalizeRequires(tool.requires) }),
       ...(tool.needsSelection === true ? { needsSelection: true as const } : {}),
       ...(normalizeBackground(tool.background) === undefined ? {} : { background: normalizeBackground(tool.background)! }),
+      ...(typeof preload === "string" && preload.trim() ? { preload: preload.trim() } : {}),
       ...(tool.sourceFiles === undefined ? {} : { sourceFiles: readSourceFiles(tool.sourceFiles) }),
     } satisfies ToolPackage,
   };
@@ -332,7 +360,7 @@ export function validateToolPackage(value: unknown): ToolValidation {
 export function validateToolPackageText(text: string): ToolValidation {
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > toolPackageLimit)
-    return { ok: false, violations: [fail("FIELD", `工具包 ${Math.ceil(bytes / 1024)} KB，超过 512 KB 上限。`, "把图片压小或改用 data URL 之外的生成方式，把 html 拆到 sourceFiles 里也行——但只有 html 会被执行。", "html")] };
+    return { ok: false, violations: [fail("FIELD", `工具包 ${Math.ceil(bytes / 1024)} KB，超过 ${Math.round(toolPackageLimit / 1024 / 1024)} MB 上限。`, "把图片、wasm、node_modules 这类重货放进工具目录（随 ZIP 一起分发），不要塞进清单的 html 或 sourceFiles。", "html")] };
   let value: unknown;
   try {
     value = JSON.parse(text);

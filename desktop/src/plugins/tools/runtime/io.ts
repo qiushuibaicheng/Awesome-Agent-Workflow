@@ -15,6 +15,15 @@ export function hostToolIO(host: HostService): ToolProjectIO {
     readTextFile: (path) => host.archives.readTextFile(path),
     writeTextFile: (path, contents) => host.skills.writeTextFile(path, contents),
     movePath: (from, to) => host.skills.moveToolPath(from, to),
+    ...(host.skills.writeBinaryFile
+      ? { writeBinaryFile: (path, base64) => host.skills.writeBinaryFile!(path, base64) }
+      : {}),
+    ...(host.skills.readBinaryFile
+      ? { readBinaryFile: (path, limit) => host.skills.readBinaryFile!(path, limit) }
+      : {}),
+    ...(host.skills.listToolFiles
+      ? { listFiles: (root, limit) => host.skills.listToolFiles!(root, limit) }
+      : {}),
   };
 }
 

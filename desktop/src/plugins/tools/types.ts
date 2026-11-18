@@ -118,7 +118,23 @@ export interface ToolPackage {
   readonly needsSelection?: boolean;
   /** 后台意图：常驻理由、是否需要定时。声明后才允许窗口关闭后继续运行。 */
   readonly background?: ToolBackground;
-  /** Additional UTF-8 authoring files. The executable entry remains self-contained html. */
+  /**
+   * 工具自带的 Node 侧桥接脚本（相对工具目录的路径，`preload.js`）。
+   *
+   * 声明之后，运行时会先注入宿主的 `aaw*` 能力，再执行这个脚本。它跑在
+   * **有完整 Node 的 preload 上下文**里，所以可以直接 `require` 工具目录下
+   * 的 `node_modules`。界面层仍然拿不到 Node（`nodeIntegration: false`），
+   * 只能拿到作者通过 `contextBridge` 主动暴露的那几个接口。
+   *
+   * 省略即"纯页面工具"，和以前完全一样。
+   */
+  readonly preload?: string;
+  /**
+   * 作者附加的 UTF-8 文本文件。
+   *
+   * 注意：这个字段只承载**文本**。二进制资源、`node_modules` 这类东西不进
+   * 清单，它们躺在工具目录里（安装时落盘），运行时直接从目录加载。
+   */
   readonly sourceFiles?: Readonly<Record<string, string>>;
 }
 

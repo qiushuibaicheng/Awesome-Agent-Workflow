@@ -118,9 +118,13 @@ pub fn run() {
             commands::copy_dir,
             commands::read_text_file,
             commands::write_text_file,
+            commands::read_binary_file,
+            commands::write_binary_file,
             commands::user_data_dir,
             commands::tool_purge,
             commands::tool_move_path,
+            // 工具目录整树列举（导出带依赖的工具；不跳过 node_modules）
+            commands::list_tool_files,
             // 工作区文件列举（@ 提及数据源；跳过依赖目录，深度/条目封顶）
             commands::list_workspace_files,
             // 关闭守卫：前端裁决后经它真正销毁窗口（跳过 CloseRequested）

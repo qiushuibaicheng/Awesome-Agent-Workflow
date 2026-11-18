@@ -68,7 +68,7 @@ export function createLauncherCatalog(root, store, { openTool, openDesktop }) {
     // 字形与色板在这里算好再下发：页面只负责渲染，避免主窗/小窗两份实现漂移。
     glyph: toolGlyph(entry.tool), tone: toneOf(entry.tool.id),
     recent: entry.lastOpened,
-    open: async () => { await openTool(entry.tool, entry.settings); entry.touch(); },
+    open: async () => { await openTool(entry.tool, entry.settings, entry.dir); entry.touch(); },
   })));
   registry.register("builtin", () => [
     { id: "builtin:aaw", name: "AAW 工作流", description: "在主窗口打开当前项目的工作流", keywords: ["workflow", "工作流"], icon: "workflow", target: "aaw" },

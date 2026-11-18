@@ -107,6 +107,14 @@ export function getCatalog(root) {
     return [{
       tool,
       settings: resolveToolSettings(tool, entry.settings),
+      /**
+       * 工具的运行目录（作者源码目录 / ZIP 安装落点）。
+       *
+       * 有它就按目录加载：`index.html`、`node_modules`、图片、wasm 全都从磁盘读，
+       * 作者改完文件重新打开就生效，不用重新安装。没有它（老记录）就退回清单里的
+       * `html` 快照——存量工具行为完全不变。
+       */
+      dir: typeof entry.dir === "string" && entry.dir.trim() ? entry.dir : undefined,
       lastOpened: Math.max(Number(entry.lastOpened) || 0, Number(recent[key]) || 0),
       touch() {
         mkdirSync(configuration, { recursive: true });

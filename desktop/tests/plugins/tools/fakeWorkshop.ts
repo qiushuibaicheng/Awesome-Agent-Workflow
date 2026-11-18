@@ -32,6 +32,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     create: idle,
     verify: () => Promise.resolve(null),
     install: () => Promise.resolve(false),
+    installArchive: (tool) => Promise.resolve({ version: tool.version, updated: false, versionChanged: false }),
     rollback: () => Promise.resolve({ text: "没有可回退的版本。" }),
     rename: () => Promise.resolve({ text: "已改名。" }),
     resume: idle,

@@ -9,7 +9,8 @@ import { useHeaderMenu } from "../../../shared/ui/useHeaderMenu.ts";
 import type { HostService } from "../../host/service.ts";
 import type { ProjectService } from "../../project/service.ts";
 import { exampleTools } from "../runtime/examples.ts";
-import { exportToolProject, readToolImport } from "../runtime/projectArchive.ts";
+import { exportToolProject, readToolUpload } from "../runtime/projectArchive.ts";
+import { readToolDirFiles } from "../runtime/project.ts";
 import { migrateLegacyTools } from "../runtime/project.ts";
 import { ActiveProjectCard, NewToolForm } from "./ToolBuilder.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
@@ -181,9 +182,12 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     const lines: string[] = [];
     for (const file of files) {
       try {
-        const tool = await readToolImport(file);
-        lines.push(describeInstall(service.install(tool, true), tool.name));
-        if (tool.permissions?.network) lines.push(`注意：${tool.name} 会联网（作者声明的）。`);
+        const upload = await readToolUpload(file);
+        const outcome = await workshop.installArchive(upload.tool, upload.files);
+        lines.push(describeInstall(outcome, upload.tool.name));
+        if (upload.tool.permissions?.network) lines.push(`注意：${upload.tool.name} 会联网（作者声明的）。`);
+        // 带依赖的包：说清依赖落在哪，用户以后想改/找不到时有个确切位置。
+        if (upload.files) lines.push(`${upload.tool.name} 自带 ${Object.keys(upload.files).length} 个依赖文件，已写入工具目录。`);
       } catch (error) {
         failures.push(`${file.name}：${errorText(error)}`);
       }
@@ -191,13 +195,16 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     setFeedback(failures.length ? { text: [...lines, ...failures].join("\n"), error: true } : { text: lines.join("\n") });
   }
 
-  async function exportTool(tool: ToolPackage) {
+  async function exportTool(tool: ToolPackage, dir?: string) {
     if (busy) return;
     setBusy(true);
     setFeedback(undefined);
     const filename = `${tool.id}-${tool.version}-source.zip`;
     try {
-      const bytes = exportToolProject(tool);
+      // 工具目录里可能有 node_modules、图片、wasm：这些不打进去，收件人拿到的
+      // 包就跑不起来，而作者会以为"我明明发的是完整项目"。
+      const extra = dir && host.isNative() ? await readToolDirFiles(projectIO(host), dir) : { files: {}, skipped: [] };
+      const bytes = exportToolProject(tool, extra.files);
       let destination = filename;
       if (host.isNative()) {
         const path = await host.dialogs.saveFile({ defaultPath: filename, filters: [{ name: "工具源码", extensions: ["zip"] }] });
@@ -214,7 +221,8 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
       }
       // 之前写的是"拖回工具中心即可导入"——但拖拽从来没被支持过，用户会照着做然后发现没反应。
       // 只说真实存在的路径：点「导入工具」选这个文件。
-      setFeedback({ text: `已导出到 ${destination}。要导入时点右上角「导入工具」，选中这个 ZIP 即可；不需要 Node，也不需要构建。` });
+      const skipped = extra.skipped.length ? `（有 ${extra.skipped.length} 个文件超过单包上限，没打进去）` : "";
+      setFeedback({ text: `已导出到 ${destination}${skipped}。要导入时点右上角「导入工具」，选中这个 ZIP 即可。` });
     } catch (error) {
       setFeedback({ text: `导出失败：${errorText(error)}`, error: true });
     } finally { setBusy(false); }
@@ -266,7 +274,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     const entry = tools.find((item) => item.package.id === tool.id);
     const entries: ContextMenuEntry[] = [
       { id: "manage", label: "管理", onSelect: () => { setFeedback(undefined); setView({ kind: "manage", id: tool.id }); } },
-      { id: "export", label: "导出源码", disabled: busy, onSelect: () => void exportTool(tool) },
+      { id: "export", label: "导出源码", disabled: busy, onSelect: () => void exportTool(tool, entry?.dir) },
       // 常驻工具点关闭只是隐藏窗口，进程还活着。不给这条出口，用户只能退出
       // 整个工具宿主才能停掉它。
       ...(tool.background
@@ -300,7 +308,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
 
   if (managed) return <ToolManagement key={`${managed.package.id}:${JSON.stringify(managed.settings)}:${JSON.stringify(managed.package.settingsSchema)}`} entry={managed} busy={busy} feedback={feedback}
     onBack={() => { setView({ kind: "library" }); setFeedback(undefined); }}
-    onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package)}
+    onOpen={() => void openElectron(managed.package.id)} onExport={() => void exportTool(managed.package, managed.dir)}
     onRollback={() => void rollbackTool(managed.package.id)}
     onSave={(values) => { try { service.saveSettings(managed.package.id, values); setFeedback({ text: "设置已保存，重新打开插件后生效。" }); return true; } catch (error) { setFeedback({ text: errorText(error), error: true }); return false; } }}
     onRemove={() => {
@@ -309,9 +317,10 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
       if (host.isNative()) void host.stopToolsElectron(managed.package.id).catch(() => {});
     }}
     onUpdate={(file) => { void (async () => { try {
-      const tool = await readToolImport(file);
-      if (tool.id !== managed.package.id) throw new Error("更新包的插件 ID 必须与当前插件一致。");
-      setFeedback({ text: describeInstall(service.install(tool, true), tool.name) });
+      const upload = await readToolUpload(file);
+      if (upload.tool.id !== managed.package.id) throw new Error("更新包的插件 ID 必须与当前插件一致。");
+      const outcome = await workshop.installArchive(upload.tool, upload.files);
+      setFeedback({ text: describeInstall(outcome, upload.tool.name) });
     } catch (error) { setFeedback({ text: errorText(error), error: true }); } })(); }} />;
 
   if (active) {

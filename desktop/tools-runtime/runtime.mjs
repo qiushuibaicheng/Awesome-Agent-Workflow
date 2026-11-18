@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { extname, join, resolve, sep } from "node:path";
 import { BrowserWindow, protocol, session, screen, webContents } from "electron";
 import { explainIncompatibility, readNetworkRule, resolveToolSettings } from "./package-contract.mjs";
 
@@ -71,15 +72,77 @@ const basePolicy = [
  * - 没写 `network` → 宽松（`https: http:`），保住存量工具；
  * - 写 `network: false` → `'none'`，作者主动收紧；
  * - 写 `hosts` → 白名单，只有列出的域名能连。
+ *
+ * `fromDisk` 为真时额外放行 `'self'`：多文件工具从工具目录加载
+ * `<script src="./app.js">`、`<link href="./app.css">`，不放行就等于把这些
+ * 标签静默拦掉——作者会以为是自己写错了。单文件工具（老记录）不受影响，
+ * 仍然是最严的那一版。
  */
-function policyFor(network) {
+function policyFor(network, fromDisk = false) {
   let connect = "https: http:";
   if (!network.enabled) connect = "'none'";
   else if (network.hosts.length) {
     const hosts = network.hosts.filter((item) => hostPattern.test(item));
     connect = hosts.length ? hosts.join(" ") : "https: http:";
   }
-  return [...basePolicy, `connect-src ${connect}`].join("; ");
+  return [...basePolicy.map((item) => (fromDisk ? allowSelf(item) : item)), `connect-src ${connect}`].join("; ");
+}
+
+/** 允许从工具目录加载资源的指令（多文件工具靠它加载同目录的 js/css/图片/字体）。 */
+const selfAllowed = new Set(["script-src", "style-src", "img-src", "font-src", "media-src"]);
+
+function allowSelf(directive) {
+  const space = directive.indexOf(" ");
+  const name = directive.slice(0, space);
+  if (!selfAllowed.has(name)) return directive;
+  return `${name} 'self' ${directive.slice(space + 1)}`;
+}
+
+/** 扩展名 → Content-Type。未知一律按二进制流处理，交给页面自己解释。 */
+const contentTypes = new Map(Object.entries({
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".cjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".wasm": "application/wasm",
+  ".txt": "text/plain; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+}));
+
+/**
+ * 把请求路径映射到工具目录里的真实文件。
+ *
+ * 只允许落在目录内部：`..`、绝对路径、跳转符号链都要挡住。工具是我们让用户
+ * 自己做的东西，但这不代表它可以借协议读宿主的任意文件。
+ */
+function resolveToolFile(dir, pathname) {
+  let relative;
+  try { relative = decodeURIComponent(pathname); } catch { return undefined; }
+  relative = relative.replace(/^\/+/, "");
+  if (!relative) return undefined;
+  const root = resolve(dir);
+  const target = resolve(root, relative);
+  if (target !== root && !target.startsWith(root + sep)) return undefined;
+  try {
+    return statSync(target).isFile() ? target : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 protocol.registerSchemesAsPrivileged([{ scheme, privileges: { standard: true, secure: true } }]);
@@ -108,10 +171,29 @@ export function prepareRuntime() {
   }
   isolated.protocol.handle(scheme, (request) => {
     const url = new URL(request.url);
-    const entry = url.pathname === "/index.html" ? documents.get(url.hostname) : undefined;
+    const entry = documents.get(url.hostname);
     if (entry === undefined) return new Response("", { status: 404 });
+    /**
+     * 有工具目录就按目录服务：`index.html`、`app.js`、`node_modules/…` 全都从
+     * 磁盘读。这样"工具带依赖"才成立——预加载脚本里的 `require` 与页面的
+     * `<script src>` 指向的是同一份文件。
+     */
+    if (entry.dir) {
+      const file = resolveToolFile(entry.dir, url.pathname);
+      if (file) {
+        const headers = { "Content-Type": contentTypes.get(extname(file).toLowerCase()) ?? "application/octet-stream" };
+        if (url.pathname === "/index.html" || extname(file).toLowerCase() === ".html")
+          headers["Content-Security-Policy"] = policyFor(entry.network, true);
+        try {
+          return new Response(readFileSync(file), { headers });
+        } catch {
+          return new Response("", { status: 500 });
+        }
+      }
+    }
+    if (url.pathname !== "/index.html") return new Response("", { status: 404 });
     return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${entry.html}`, {
-      headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": policyFor(entry.network) },
+      headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": policyFor(entry.network, Boolean(entry.dir)) },
     });
   });
   return isolated;
@@ -288,9 +370,10 @@ export async function loadTool(isolated, tool, visible, settings, options = {}) 
       const doc = documents.get(live.key);
       const network = readNetworkRule(tool.permissions);
       if (doc) {
-        documents.set(live.key, { ...doc, html: tool.html, network, settings: resolveToolSettings(tool, settings) });
-        // 重新装过一版才需要换内容；单纯改设置不必 reload，否则用户正在输入的状态会被清掉。
-        if (doc.html !== tool.html) live.win.webContents.reload();
+        documents.set(live.key, { ...doc, html: tool.html, dir: options.dir, network, settings: resolveToolSettings(tool, settings) });
+        // 重新装过一版、或者换了运行目录才需要换内容；单纯改设置不必 reload，
+        // 否则用户正在输入的状态会被清掉。
+        if (doc.html !== tool.html || doc.dir !== options.dir) live.win.webContents.reload();
       }
       if (live.win.isMinimized()) live.win.restore();
       live.win.show();
@@ -305,21 +388,38 @@ export async function loadTool(isolated, tool, visible, settings, options = {}) 
   for (const host of network.insecure ? network.hosts : []) {
     if (hostPattern.test(host)) insecureHosts.add(host.toLowerCase());
   }
+  const dir = options.dir;
   const win = new BrowserWindow({
     show: false, title: tool.name, width: Math.min(900, workArea.width - 32), height: Math.min(650, workArea.height - 32),
     minWidth: Math.min(360, workArea.width - 32), minHeight: Math.min(280, workArea.height - 32), autoHideMenuBar: true,
     icon: join(import.meta.dirname, "icon.png"),
     backgroundColor: "#171c24",
     webPreferences: {
-      session: isolated, sandbox: true, contextIsolation: true, nodeIntegration: false,
+      session: isolated,
+      /**
+       * 沙箱必须关掉，否则 preload 拿不到完整的 Node，工具自带的 `preload.js`
+       * 一行 `require` 都跑不了（沙箱里的 preload 只有 electron/events/timers/url
+       * 这几个内置模块）。
+       *
+       * 这不等于"把 Node 给了页面"：`contextIsolation: true` 保证页面主世界
+       * 与 preload 隔离，`nodeIntegration: false` 保证页面里没有 `require`。
+       * Node 只存在于 preload 这一层，作者要把能力显式 expose 出去，页面才看得见。
+       */
+      sandbox: false, contextIsolation: true, nodeIntegration: false,
       spellcheck: false, devTools: options.dev === true,
       preload: join(import.meta.dirname, "tool-preload.cjs"),
       // key 只有 36 字符，不撞 Windows 命令行长度上限；settings 本身走同步 IPC。
-      additionalArguments: [`--aaw-tool-key=${key}`],
+      // dir / preload 走参数而不是 IPC，是因为 preload 执行时机早于任何异步通道。
+      additionalArguments: [
+        `--aaw-tool-key=${key}`,
+        ...(dir ? [`--aaw-tool-dir=${dir}`] : []),
+        ...(dir && tool.preload ? [`--aaw-tool-preload=${tool.preload}`] : []),
+      ],
     },
   });
   documents.set(key, {
     html: tool.html,
+    dir,
     settings: resolveToolSettings(tool, settings),
     network,
     context: options.context ?? { selection: "", origin: "launcher" },
@@ -347,14 +447,14 @@ export async function loadTool(isolated, tool, visible, settings, options = {}) 
   }
 }
 
-export async function executeAction(isolated, tool, action, input, settings) {
+export async function executeAction(isolated, tool, action, input, settings, dir) {
   // 动作跑在隐藏窗口里，没有"说明页"可看：不兼容就直接报清楚，别让调用方
   // 收到一个来自空白页的"工具未实现动作"而误以为是工具自己的 bug。
   const problem = explainIncompatibility(tool);
   if (problem) throw new Error(`${problem.reason}${problem.hint ? ` ${problem.hint}` : ""}`);
   let timer;
   let win;
-  const loading = loadTool(isolated, tool, false, settings);
+  const loading = loadTool(isolated, tool, false, settings, { dir });
   try {
     return await Promise.race([
       loading.then(async (window) => {
@@ -373,7 +473,9 @@ export async function executeAction(isolated, tool, action, input, settings) {
         return JSON.parse(result);
       }),
       new Promise((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error("工具动作执行超时（8 秒）。")), 8000);
+        // 20 秒而不是 8 秒：工具开始能带 node_modules 之后，第一次执行要把依赖
+        // 从磁盘读进来（冷启动时几百个文件），8 秒会把"正常但慢"误判成超时。
+        timer = setTimeout(() => reject(new Error("工具动作执行超时（20 秒）。")), 20000);
       }),
     ]);
   } finally {

@@ -27,5 +27,5 @@ export async function runCli(root, isolated, args) {
   if (!tool) throw new Error("未找到已安装的工具。");
   if (command === "describe") return describeTool(tool);
   if (!tool.actions?.some((entry) => entry.id === action)) throw new Error("工具未声明该动作。");
-  return executeAction(isolated, tool, action, await readInput(file?.slice(13)), entry.settings);
+  return executeAction(isolated, tool, action, await readInput(file?.slice(13)), entry.settings, entry.dir);
 }

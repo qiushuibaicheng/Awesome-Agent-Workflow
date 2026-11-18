@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -7,6 +7,7 @@ import {
   toolCapabilities,
   toolContractVersion,
 } from "../../../src/plugins/tools/runtime/contract.ts";
+import * as packageContract from "../../../src/plugins/tools/runtime/package.ts";
 
 /**
  * 契约快照测试。
@@ -87,5 +88,32 @@ describe("工具运行契约", () => {
     expect(runtime).toContain("additionalArguments");
     expect(preload).toContain("tool:settings:sync");
     expect(preload).toContain("sendSync");
+  });
+
+  /**
+   * 运行时（`*.mjs`）与渲染层（`*.ts`）之间只有一条缝：`package.ts` 被 esbuild
+   * 打成 `package-contract.mjs`，运行时按名字从里面取。
+   *
+   * 这条缝没有任何类型检查兜着——`package.ts` 少写一行 `export`，`npm run tools:build`
+   * 照样成功，要到真机启动才炸，而且炸在顶层 import 上：窗口标题变成 "Error"、
+   * 日志一个字都没有、stderr 又没地方可去。这一例就是那个场景的回归测试
+   * （`readNetworkRule` 当时定义在 `types.ts` 却没有被转发出来）。
+   */
+  it("运行时从契约产物取的每个名字，bundle 入口都真的导出", () => {
+    const sourceDir = resolve(process.cwd(), "tools-runtime");
+    const imported = new Set<string>();
+    for (const name of readdirSync(sourceDir)) {
+      if (!name.endsWith(".mjs")) continue;
+      const source = readFileSync(resolve(sourceDir, name), "utf8");
+      for (const match of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*"\.\/package-contract\.mjs"/g)) {
+        for (const item of (match[1] ?? "").split(",")) {
+          const local = item.trim().split(/\s+as\s+/)[0]?.trim();
+          if (local) imported.add(local);
+        }
+      }
+    }
+    // 正则没匹配到东西等于这条测试永远为真，先确认它真的在扫。
+    expect(imported.size).toBeGreaterThan(0);
+    expect([...imported].filter((name) => !(name in packageContract))).toEqual([]);
   });
 });

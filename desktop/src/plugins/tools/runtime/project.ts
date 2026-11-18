@@ -13,6 +13,7 @@
 import { joinPath, parentPath, pathKey, pathName } from "../../../shared/panelPaths.ts";
 import type { ToolPackage, ToolViolation } from "../types.ts";
 import { toolIdPattern, validateToolPackage, validateToolPackageText } from "./package.ts";
+import { safeSourcePath } from "./sourceFiles.ts";
 import { runToolRules, splitViolations } from "./rules.ts";
 import { toolGuide } from "./guide.ts";
 
@@ -31,6 +32,12 @@ export interface ToolProjectIO {
    * 跨盘时退回复制 + 删除。
    */
   movePath(from: string, to: string): Promise<void>;
+  /** 写二进制文件（base64）；宿主不支持时安装会明确报错，而不是静默丢文件。 */
+  writeBinaryFile?(path: string, base64: string): Promise<void>;
+  /** 读二进制文件（base64）；导出带依赖的工具时用。 */
+  readBinaryFile?(path: string, limit?: number): Promise<string>;
+  /** 递归列举目录内全部文件（相对路径），**不跳过** `node_modules`。 */
+  listFiles?(root: string, limit?: number): Promise<readonly string[]>;
 }
 
 export interface ToolProjectSummary {
@@ -140,6 +147,23 @@ export function toolOwnerSegment(userId: string | undefined): string {
  */
 export async function defaultToolProjectsDir(io: ToolProjectIO, owner: string | undefined): Promise<string> {
   const base = await io.userDataDir("tools", "projects");
+  return joinPath(base, toolOwnerSegment(owner));
+}
+
+/**
+ * 从 ZIP / 压缩包装进来的工具落在这里：`<AAW 数据目录>/tools/installed/<账号>`。
+ *
+ * 为什么不和 `projects` 放在一起——两者**归属不同**：
+ * - `projects/<账号>/<id>` 是用户/作者自己的源码，卸载一个工具不该把它删掉；
+ * - `installed/<账号>/<id>` 是我们解压出来的运行副本，卸载时该连 `node_modules`
+ *   一起清掉，否则用户卸完还占着几百 MB。
+ *
+ * 混在一个目录里，这两件事都做不了：分不清"这个目录是谁的"，就只能选择不删
+ * （留垃圾）或者冒险删用户源码。顺带还修掉一个真会让用户困惑的表现——以前
+ * 导入一个 ZIP，那个工具会以"工具项目"的身份出现在用户从没创建过的项目列表里。
+ */
+export async function defaultInstalledToolsDir(io: ToolProjectIO, owner: string | undefined): Promise<string> {
+  const base = await io.userDataDir("tools", "installed");
   return joinPath(base, toolOwnerSegment(owner));
 }
 
@@ -384,8 +408,7 @@ export async function migrateLegacyTools(
   return { created, skipped };
 }
 
-/** 从目录里取一份可安装的工具包（给"安装"按钮用）。 */
-export async function toolFromProject(io: ToolProjectIO, dir: string): Promise<{ ok: true; tool: ToolPackage } | { ok: false; violations: readonly ToolViolation[] }> {
+/** 从目录里取一份可安装的工具包（给"安装"按钮用）。 */export async function toolFromProject(io: ToolProjectIO, dir: string): Promise<{ ok: true; tool: ToolPackage } | { ok: false; violations: readonly ToolViolation[] }> {
   const read = await readToolProject(io, dir);
   if (!read.ok) return { ok: false, violations: read.violations };
   const { blocking } = splitViolations(read.violations);
@@ -403,4 +426,129 @@ export function checkToolText(text: string): ToolProjectCheck {
   const problems = runToolRules(validated.tool);
   const split = splitViolations(problems);
   return { tool: validated.tool, blocking: split.blocking, warnings: split.warnings, ready: split.blocking.length === 0 };
+}
+
+/* ---------------------------------------------------------------- 依赖落盘 */
+
+/**
+ * 解压出来的文件写到哪里。
+ *
+ * 和「开发工具」共用同一套项目目录（`tools/projects/<账号>/<id>`），这样
+ * "源码在哪"只有一个答案：作者装完自己的工具，可以直接在那个目录里继续改。
+ *
+ * 覆盖规则刻意保守：目录里已经有一个 **id 不一样** 的清单时直接报错。用户点
+ * 「导入」的意思是"替换这个工具"，不是"清掉这个目录里的东西"——宁可让他手动
+ * 处理，也不能悄悄吃掉别人的项目。
+ */
+export async function prepareToolDir(
+  io: ToolProjectIO,
+  input: { readonly id: string; readonly parent?: string; readonly owner?: string },
+): Promise<string> {
+  const parent = input.parent ?? await defaultToolProjectsDir(io, input.owner);
+  const dir = joinPath(parent, input.id);
+  if (!await io.pathExists(dir)) return dir;
+  let existingId: string | undefined;
+  try {
+    const parsed = JSON.parse(await io.readTextFile(joinPath(dir, toolProjectFileNames.manifest))) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      existingId = typeof (parsed as { id?: unknown }).id === "string" ? (parsed as { id: string }).id : undefined;
+  } catch { /* 下面按"没有清单"处理 */ }
+  if (existingId === undefined)
+    throw new Error(`目标目录已存在且其中没有可读的 manifest.json：${dir}。请先确认那不是你要保留的项目。`);
+  if (existingId !== input.id)
+    throw new Error(`目标目录里已经有一个 id 为「${existingId}」的工具，与要安装的「${input.id}」不一致：${dir}。先处理那个目录，或改掉清单里的 id。`);
+  return dir;
+}
+
+/** UTF-8 严格解码；解不出来就是二进制。不靠扩展名猜，避免误判 `.bin`/无扩展名文件。 */
+function decodeUtf8(bytes: Uint8Array): string | undefined {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk)
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  return btoa(binary);
+}
+
+function fromBase64(text: string): Uint8Array {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/**
+ * 把解压出来的文件写进工具目录。
+ *
+ * 分批并发而不是 `Promise.all` 一把梭：一个带 `node_modules` 的包动辄上千个
+ * 文件，全并发会把 IPC 队列撑爆（而且宿主侧每个调用都要建目录），反而更慢。
+ * 失败立即抛出——只写了一半的目录会让运行时读到"缺一半依赖"的状态。
+ */
+export async function writeToolFiles(
+  io: ToolProjectIO,
+  dir: string,
+  files: Readonly<Record<string, Uint8Array>>,
+): Promise<void> {
+  const entries = Object.entries(files);
+  if (!entries.length) return;
+  if (!io.writeBinaryFile && entries.some(([, bytes]) => decodeUtf8(bytes) === undefined))
+    throw new Error("当前宿主不支持写入二进制文件，这个包里的图片 / wasm / 原生模块装不进来。");
+  const queue = [...entries];
+  const workers = Array.from({ length: Math.min(8, queue.length) }, async () => {
+    for (;;) {
+      const next = queue.shift();
+      if (!next) return;
+      const [name, bytes] = next;
+      if (!safeSourcePath(name)) throw new Error(`工具包内含不安全路径：${name}`);
+      const target = joinPath(dir, name);
+      const text = decodeUtf8(bytes);
+      if (text !== undefined) await io.writeTextFile(target, text);
+      else await io.writeBinaryFile!(target, toBase64(bytes));
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * 读回工具目录里的全部文件，供导出使用。
+ *
+ * 没有任何一个环节可用时返回空对象：导出会退化成"只有清单与页面的包"，用户
+ * 拿到后至少能打开，而不是一个空 ZIP。
+ */
+export async function readToolDirFiles(
+  io: ToolProjectIO,
+  dir: string,
+  limit = 32 * 1024 * 1024,
+): Promise<{ readonly files: Readonly<Record<string, Uint8Array>>; readonly skipped: readonly string[] }> {
+  if (!io.listFiles || !io.readBinaryFile) return { files: {}, skipped: [] };
+  let names: readonly string[];
+  try {
+    names = await io.listFiles(dir, 4000);
+  } catch {
+    return { files: {}, skipped: [] };
+  }
+  const files: Record<string, Uint8Array> = {};
+  const skipped: string[] = [];
+  let bytes = 0;
+  // 串行读：这里不是热路径（用户主动点导出），串行换来可预测的内存占用。
+  for (const name of names) {
+    if (name === "AGENTS.md" || name === "NOTES.md") continue;
+    try {
+      const base64 = await io.readBinaryFile(joinPath(dir, name), limit);
+      const data = fromBase64(base64);
+      bytes += data.length;
+      if (bytes > limit) { skipped.push(name); break; }
+      files[name] = data;
+    } catch {
+      skipped.push(name);
+    }
+  }
+  return { files, skipped };
 }

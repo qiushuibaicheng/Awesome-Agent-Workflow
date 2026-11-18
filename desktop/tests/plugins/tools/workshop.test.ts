@@ -121,3 +121,28 @@ it("syncToolGuide writes the guide through the narrow file port", async () => {
   expect(io.files.get("chrys/skills/tool-dev/SKILL.md")).toContain("name: tool-dev");
 });
 
+
+/**
+ * 从 ZIP 装进来的工具解到 `tools/installed/`，不进 `tools/projects/`。
+ *
+ * 两个目录的**归属**不同：`projects/` 是用户自己的源码（卸载时不替用户删），
+ * `installed/` 是我们解出来的运行副本（卸载时该连 `node_modules` 一起清）。
+ * 混在一起的代价以前是看得见的——导入一个 ZIP，那个工具会以"工具项目"的身份
+ * 出现在用户从没创建过的项目列表里。
+ */
+it("extracts an imported archive into installed/, never into the author's projects", async () => {
+  const { workshop, io } = harness();
+  const manifest = JSON.stringify({ schemaVersion: 1, id: "demo", name: "Demo", version: "1.0.0" });
+  const installer = new TextEncoder();
+  await workshop.installArchive(
+    { schemaVersion: 1, id: "demo", name: "Demo", version: "1.0.0", html: "<p>hi</p>" },
+    { "manifest.json": installer.encode(manifest), "index.html": installer.encode("<p>hi</p>") },
+  );
+  const written = [...io.files.keys()];
+  // 只关心工具落盘那部分：建工坊时还会往技能目录静默写一份开发规范。
+  const toolFiles = written.filter((path) => path.startsWith("tools/"));
+  expect(toolFiles.length).toBeGreaterThan(0);
+  expect(toolFiles.filter((path) => path.startsWith("tools/projects/"))).toEqual([]);
+  expect(toolFiles.every((path) => path.startsWith("tools/installed/u1/demo/"))).toBe(true);
+  workshop.dispose();
+});

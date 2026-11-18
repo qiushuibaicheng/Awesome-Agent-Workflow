@@ -90,16 +90,55 @@ function guideBody(context: ToolGuideContext): string {
 | 文件与小批处理 | 打开一个文本、清洗内容、再存成新文件；把一批文本合并导出 |
 | 个人留存 | 待办清单、随手记、常用配置、最近用过的输入（走 \`aawStore\`） |
 
-它能读写系统剪切板、读写用户亲手选的文件、把数据留到下次打开、按声明联网访问 http/https，在你声明之后还能常驻后台与弹提醒。**不能**装 npm 包、不能读任意本地路径、不能调用摄像头或录屏——平台把这些挡在沙箱外面，是为了让一个 ZIP 能在别人机器上直接装、直接跑。
+它能读写系统剪切板、读写用户亲手选的文件、把数据留到下次打开、按声明联网访问 http/https，在你声明之后还能常驻后台与弹提醒。需要第三方库时，把依赖放进工具目录、写一个 \`preload.js\` 就能用（见下面「带依赖的工具」）。**不能**读任意本地路径、不能调用摄像头或录屏——平台把这些挡在沙箱外面，是为了让一个 ZIP 能在别人机器上直接装、直接跑。
 
-技术上的边界只有一条：整个工具是自包含的 \`index.html\`（HTML/CSS/JS 都在里面），\`manifest.json\` 描述身份、动作、设置与能力。不是多页面站点，不是后台守护进程，不是需要构建的 npm 应用。必须有至少一个动作让 AI 也能调用——界面上的按钮和 \`aawActions\` 里的函数是同一件事，人和 AI 走同一条路。
+技术上的边界：默认形态是自包含的 \`index.html\`（HTML/CSS/JS 都在里面），\`manifest.json\` 描述身份、动作、设置与能力。**要带依赖时可以多一个 \`preload.js\` 与 \`node_modules/\`**——Node 只在 \`preload.js\` 里可用，页面本身拿不到。不是多页面站点，不是后台守护进程。必须有至少一个动作让 AI 也能调用——界面上的按钮和 \`aawActions\` 里的函数是同一件事，人和 AI 走同一条路。
 
 ## 项目结构
 
 - \`manifest.json\`：身份、动作、设置、能力声明（**你主要编辑它**）
-- \`index.html\`：唯一运行入口，必须自包含（**你主要编辑它**）
+- \`index.html\`：界面入口，默认自包含（**你主要编辑它**）
+- \`preload.js\`：可选，工具自己的 Node 侧桥接；需要在 \`manifest.json\` 里写 \`"preload": "preload.js"\`
+- \`node_modules/\`：可选，随包分发的依赖（只有 \`preload.js\` 能用）
 - \`NOTES.md\`：可选，写设计取舍
 - \`AGENTS.md\`：本文件，平台生成，不要改（见下节 R9）
+
+## 带依赖的工具
+
+需要 npm 上的纯 JS 库（比如 \`ssh2\`、\`exceljs\`）时：
+
+1. 在工具目录里 \`npm install exceljs\`，会多出 \`node_modules/\`。
+2. 写 \`preload.js\`，里面直接 \`require("exceljs")\`——它跑在有完整 Node 的上下文里，Node 会从 \`preload.js\` 所在目录往上找 \`node_modules\`，不需要写任何路径。
+3. \`manifest.json\` 里写 \`"preload": "preload.js"\`。
+4. 用 \`aawBridge.expose("services", { … })\` 把接口交给页面，页面用 \`window.services\` 调用。
+
+\`\`\`js
+// preload.js
+const ExcelJS = require("exceljs");
+
+aawBridge.expose("services", {
+  /** 生成一份 xlsx，返回 ArrayBuffer 给页面直接存盘。 */
+  async buildSheet(rows) {
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet("导出");
+    sheet.addRows(rows);
+    return book.xlsx.writeBuffer();
+  },
+});
+\`\`\`
+
+\`\`\`html
+<!-- index.html -->
+<script>
+  const bytes = await window.services.buildSheet([["姓名", "部门"], ["张三", "平台组"]]);
+  await aawFiles.save("导出.xlsx", bytes);
+</script>
+\`\`\`
+
+**两条硬限制**：
+
+- 页面里没有 Node。\`require\` 只在 \`preload.js\` 里存在，暴露什么由你决定——别把整个 \`fs\` 直接交出去。
+- **原生模块（\`.node\`）不能随包传。** 它绑定操作系统、CPU 架构和 Electron 版本，换台机器必崩。这类能力要么平台内置（问我们加），要么改用纯 JS 等价物。
 
 ## 平台框架与不可改动的文件（R9）
 
@@ -220,7 +259,7 @@ ${toolGuide({ id: "<工具 id>", name: "<工具名>" })}
 
 1. 先问一句"要不要在工具中心新建一个项目"——建项目会自带本规范与预览、安装链路。
 2. 如果用户只是要一段代码，就把 \`manifest.json\` 与 \`index.html\` 一起给出，并在结尾附上红线自检结果。
-3. 不要把它做成需要构建的 npm 工程：平台只执行自包含的 \`index.html\`。
+3. 默认不要引入构建步骤：单文件 \`index.html\` 就够了。确实需要第三方库时，走「带依赖的工具」那套（\`preload.js\` + \`node_modules/\`），别让用户为了装一个工具先跑 \`npm run build\`。
 `;
 }
 
