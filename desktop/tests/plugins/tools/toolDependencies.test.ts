@@ -76,12 +76,33 @@ it("keeps binary dependency files and the declared preload when importing a ZIP"
   });
   const { tool, files } = importToolArchive(archive);
   expect(tool.preload).toBe("preload.js");
-  // 文本进清单（AI 与导出都要能读到），二进制只留在 files 里等落盘。
+  // 作者自己的文本进清单（AI 与导出都要能读到），二进制只留在 files 里等落盘。
   expect(tool.sourceFiles?.["preload.js"]).toContain('require("ssh2")');
+  // 依赖里的文本也是文本，但它**不进清单**：清单限 512 文件 / 4 MB，一棵正常
+  // 依赖树就撑爆；而且它属于依赖，不属于作者源码。它仍然在 files 里，会落盘。
+  expect(tool.sourceFiles?.["node_modules/ssh2/package.json"]).toBeUndefined();
   expect(tool.sourceFiles?.["node_modules/ssh2/lib/native.node"]).toBeUndefined();
+  expect(files["node_modules/ssh2/package.json"]).toBeDefined();
   expect([...(files["node_modules/ssh2/lib/native.node"] ?? [])]).toEqual([...binaryBytes]);
   expect(files["index.html"]).toBeDefined();
   expect(files["manifest.json"]).toBeDefined();
+});
+
+it("imports a dependency tree far past the sourceFiles cap", () => {
+  // 600 个文本文件全在 node_modules 下：以前它们会被当成 sourceFiles 灌进清单，
+  // 撞上"最多 512 个文件"直接**导入失败**，而报错指向 sourceFiles，作者只会以为
+  // 是自己的清单写错了。依赖只走 files 之后，这条路上限由 ZIP 自己那份管
+  // （32 MB / 4000 条目），与清单无关。
+  const archive: Record<string, Uint8Array> = {
+    "manifest.json": strToU8(JSON.stringify({ ...sampleTool, html: undefined, preload: "preload.js" })),
+    "index.html": strToU8(sampleTool.html),
+    "preload.js": strToU8('require("dep");'),
+  };
+  for (let index = 0; index < 600; index += 1)
+    archive[`node_modules/dep/lib/f${index}.js`] = strToU8(`module.exports = ${index};`);
+  const { tool, files } = importToolArchive(archiveOf(archive));
+  expect(tool.sourceFiles && Object.keys(tool.sourceFiles).sort()).toEqual(["preload.js"]);
+  expect(Object.keys(files).filter((path) => path.startsWith("node_modules/"))).toHaveLength(600);
 });
 
 it("writes text through the text channel and binaries through the binary one", async () => {

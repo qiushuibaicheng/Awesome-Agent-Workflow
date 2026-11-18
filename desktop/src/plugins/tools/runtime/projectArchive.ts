@@ -21,6 +21,26 @@ function isArchiveNoise(path: string): boolean {
 }
 
 /**
+ * 是不是依赖目录里的文件。
+ *
+ * 这些文件**只落盘、不进清单**（`sourceFiles`）。原因有两条，都很实际：
+ *
+ * 1. **体积与数量。** 清单存在 `preferences.json` 里，而 `sourceFiles` 限 512 个
+ *    文件 / 4 MB。一棵正常依赖树轻松几百个 `.js`（`ssh2` 约 90 个，带前端构建
+ *    产物的包上千个），把它们塞进清单会直接撑爆上限——表现是**导入失败**，而且
+ *    报错指向 `sourceFiles`，作者完全看不出这是自己的依赖树造成的。
+ * 2. **语义。** `sourceFiles` 的用途是"作者的源码，AI 编辑与导出时要读得到"。
+ *    依赖不是作者写的，把它灌进清单既没用，也让每台机器每次唤起启动器都要
+ *    多读几 MB。
+ *
+ * 依赖照样随包导入导出——它们走 `ToolArchive.files`（原始字节）直接写进工具
+ * 目录，运行时从磁盘 `require`，和清单无关。
+ */
+function isDependencyPath(path: string): boolean {
+  return path === "node_modules" || path.startsWith("node_modules/");
+}
+
+/**
  * 导出的源码项目里除了工具本体，还要有"怎么改、怎么装回去"。
  *
  * 早先这里生成 `package.json` + `scripts/build.mjs`，要求接收方装 Node 再
@@ -145,12 +165,14 @@ export function importToolArchive(bytes: Uint8Array): ToolArchive {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("manifest.json 必须是对象。");
   // 文本文件仍然进清单（AI 编辑、导出时都要能读到）；二进制只留在 files 里，
   // 由调用方写到工具目录。用"能否按 UTF-8 严格解码"来分类，不猜扩展名。
+  // `node_modules/**` 是例外：它虽然也是文本，但属于依赖而不是作者源码，
+  // 一律只落盘（理由见 isDependencyPath）。
   const text: Record<string, string> = {};
   const relative: Record<string, Uint8Array> = {};
   for (const [path, data] of Object.entries(files)) {
     const name = path.slice(prefix.length);
     relative[name] = data;
-    if (name === "manifest.json" || name === "index.html") continue;
+    if (name === "manifest.json" || name === "index.html" || isDependencyPath(name)) continue;
     try { text[name] = decoder.decode(data); } catch { /* 二进制：只落盘，不进清单 */ }
   }
   const tool = parseToolPackage(JSON.stringify({
