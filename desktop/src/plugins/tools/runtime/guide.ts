@@ -7,7 +7,7 @@
  * 完整版在仓库 `skills/tool-dev/SKILL.md`（给人看、给技能安装器用）；这里是
  * 精简版，红线表由 `rules.ts` 生成，保证两边编号永远一致。
  */
-import { ruleGuidance, ruleIds, type RuleId } from "./rules.ts";
+import { platformFrameworkFiles, ruleGuidance, ruleIds, type RuleId } from "./rules.ts";
 import type { ToolViolation } from "../types.ts";
 
 export interface ToolGuideContext {
@@ -24,6 +24,14 @@ function ruleTable(): string {
       return `| ${id} | ${entry.level} | ${entry.rule} | ${entry.fix} |`;
     }),
   ].join("\n");
+}
+
+/**
+ * 「平台框架」保留文件名清单，直接读校验器 R9 用的同一份常量。
+ * 手册与代码共用一份数据，就不会出现"手册说不能改、校验器却不认"的漂移。
+ */
+function frameworkFileList(): string {
+  return platformFrameworkFiles.map((name) => `\`${name}\``).join("、");
 }
 
 /**
@@ -52,7 +60,7 @@ export function toolGuideMarkdown(): string {
 
 ## 从这里开始
 
-- **做一个新工具**：工具中心 →「开发工具」→ 写一句需求 → 开始做。
+- **做一个新工具**：工具中心 →「开发工具」→ 写下需求 → 开始做。
 - **改一个已有的**：同一个标签页里点项目的「继续开发」。
 - **做完了**：面板会自动校验，通过后点「确认安装」。
 - **不想让 AI 做**：项目目录里的 \`manifest.json\` 与 \`index.html\` 就是全部源码，直接改，改完点「我改完了，重新校验」。
@@ -91,7 +99,19 @@ function guideBody(context: ToolGuideContext): string {
 - \`manifest.json\`：身份、动作、设置、能力声明（**你主要编辑它**）
 - \`index.html\`：唯一运行入口，必须自包含（**你主要编辑它**）
 - \`NOTES.md\`：可选，写设计取舍
-- \`AGENTS.md\`：本文件，平台生成，不要改
+- \`AGENTS.md\`：本文件，平台生成，不要改（见下节 R9）
+
+## 平台框架与不可改动的文件（R9）
+
+**为什么有这条**：我们做的是能在平台上传播的工具。一个工具导出成一个 ZIP，别人导入后要能直接装、直接跑——前提是**每台机器上的 AAW 都提供同一套运行框架**，而工具包里只装工具自己。框架是地基，不是行李。
+
+**框架是什么、由谁提供**：工具窗口的 \`aaw-tool://\` 协议、CSP 沙箱、独立内存分区、五个 \`window.aaw*\` 能力注入、窗口尺寸与启动器/命令行，全在桌面端的 \`tools-runtime/\` 与 Tauri 侧 \`tools_runtime.rs\` 里，由**宿主**在运行时提供。它们不在工具项目里，也不要复制、改写或伪造它们。项目里的 \`AGENTS.md\`、导出 ZIP 里的 \`README.md\` 都是平台按工具身份生成的契约文件，不是给你改的；\`manifest.json\` 的字段名、\`schemaVersion\`、\`id\` 规则、\`html\` 必须是整页字符串这些约定，也属于同一份契约。
+
+**平台框架/关键文件的保留名**（不要改、不要塞进 \`sourceFiles\`、不要另造同名文件）：${frameworkFileList()}。
+
+**改了会怎样**：一旦把框架文件打包进去、自己覆盖 \`window.aaw*\` 注入、在 html 里写死本机绝对路径或 \`file://\` 地址，这个 ZIP 就绑死了你这一台机器和这一版宿主。别人导入后要么加载不到、要么行为不一致——工具就失去了通用性，也就没法在平台上传播。要访问外部资源，走 \`aawFiles.open\` 让用户当场选，或用五个 \`window.aaw*\` 入口，而不是写死路径。
+
+**你能改的**：\`manifest.json\` 里的字段值、\`index.html\` 的全部内容、可选的附加源码与 \`NOTES.md\`。仅此而已——其余都是宿主的事。校验器会把夹带框架文件挡下来（R9，block），把绑本机路径标成建议（R9，warn）。
 
 ## manifest.json
 
@@ -169,7 +189,7 @@ export function toolGuideSkill(): string {
   return `---
 name: tool-dev
 version: "1.0.0"
-description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、五个运行时能力入口、红线与交付前自检。
+description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、五个运行时能力入口、平台框架与不可改动的文件（R9 通用性红线）、红线与交付前自检。
 ---
 
 ${toolGuide({ id: "<工具 id>", name: "<工具名>" })}
@@ -187,7 +207,7 @@ export function briefMessage(brief: string, context: ToolGuideContext): string {
   return `我想做一个工具：${brief}
 
 项目已经建好了（id: \`${context.id}\`），请先读项目里的 AGENTS.md，然后在当前目录里写 \`manifest.json\` 和 \`index.html\`。
-先给我一句话说明你打算怎么做，再动手。`;
+先说明你打算怎么做，再动手。`;
 }
 
 /** 校验失败时回灌给会话的消息：只带必须修与建议，AI 照着改。 */

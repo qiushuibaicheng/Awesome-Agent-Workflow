@@ -45,7 +45,7 @@ function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void
       <span className="tools-empty-glow" aria-hidden="true" />
       <span className="tools-empty-mark" aria-hidden="true"><WrenchIcon /></span>
     </div>
-    <h3 className="tools-empty-title">从一句话开始，做一个自己的工具</h3>
+    <h3 className="tools-empty-title">从你的想法开始，做一个自己的工具</h3>
     <p className="tools-empty-lead">工具是能独立打开的小窗口：格式化 JSON、批量改文本、随手记点东西，或者让你的常用操作一键完成。</p>
     <ol className="tools-empty-steps">
       <li><span aria-hidden="true">1</span><div><strong>说清要做什么</strong><small>例如「把接口返回的 JSON 转成表格」</small></div></li>
@@ -54,10 +54,13 @@ function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void
     </ol>
     <div className="tools-empty-actions">
       <button type="button" className={`${btnPrimary} tools-empty-primary`} onClick={onCreate}>开始做工具 <span aria-hidden="true">→</span></button>
-      <button type="button" className={btnSecondary} onClick={onImport}>导入 ZIP</button>
-      <button type="button" className={`${btnGhost} tools-empty-examples`} onClick={onExamples}>载入示例工具</button>
+      <div className="tools-empty-alts">
+        <button type="button" className={`${btnGhost} tools-empty-alt`} onClick={onImport}>导入 ZIP</button>
+        <span className="tools-empty-alt-sep" aria-hidden="true">·</span>
+        <button type="button" className={`${btnGhost} tools-empty-alt`} onClick={onExamples}>载入示例工具</button>
+      </div>
     </div>
-    <p className="tools-empty-foot">想先看效果？点「载入示例工具」装进两个可打开的示例，随时能卸载；「开发指导 ↗」里有完整约定。</p>
+    <p className="tools-empty-foot">示例工具随时可以卸载；完整约定见「开发指导 ↗」。</p>
   </section>;
 }
 
@@ -299,7 +302,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
       <header className="tools-header border-b border-line px-4 pb-3 pt-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
-          <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">说一句需求，AI 做一个能用的小工具</p></div>
+          <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">描述你的需求，AI 做一个能用的小工具</p></div>
           {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
           <button type="button" className={btnSecondary} onClick={() => picker.current?.click()}>导入工具</button>
         </div>
@@ -338,16 +341,6 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
             onPreview={(dir) => void previewProject(dir)}
             onInstall={(dir) => void installProject(dir)}
           />
-          {/* 以前这块是一整张"安装规范"卡片——内容写进了 AI 技能目录，人却看不见。
-              现在内容在「开发指导」窗口里，这里只负责把同一份正文也交给 AI。 */}
-          <section aria-label="AI 开发规范" className="build-guide">
-            <div>
-              <strong>让 AI 也按这份指导做工具</strong>
-              <p>写进 AI 技能目录后，普通会话里让 AI 做工具也会守同一份契约；正文就是「开发指导」里那份。</p>
-            </div>
-            <button type="button" className={btnSecondary} onClick={() => void workshop.installGuide()} disabled={!host.isNative()}>同步到 AI 技能目录</button>
-            {workshopState.guideNote && <p className={`build-hint ${workshopState.guideNote.error ? "is-error" : ""}`}>{workshopState.guideNote.text}</p>}
-          </section>
         </>}
 
         {tab === "library" && <>

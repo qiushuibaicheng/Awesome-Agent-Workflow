@@ -4,7 +4,7 @@ import type { HostService } from "../../../src/plugins/host/service.ts";
 import type { ProjectService } from "../../../src/plugins/project/service.ts";
 import { memoryToolIO } from "../../../src/plugins/tools/runtime/io.ts";
 import type { ToolsService } from "../../../src/plugins/tools/service.ts";
-import { createWorkshop } from "../../../src/plugins/tools/ui/workshop.ts";
+import { createWorkshop, syncToolGuide } from "../../../src/plugins/tools/ui/workshop.ts";
 
 /**
  * 工坊的"人接手"路径：AI 回灌 3 轮还修不好时，必须把选择权交回用户——
@@ -99,5 +99,25 @@ it("hands over to the user after three repair rounds, with both actions wired", 
   expect(workshop.state.getState().stalled).toBe(false);
   expect(workshop.state.getState().note?.text).toContain("校验通过");
   expect(workshop.state.getState().check?.ready).toBe(true);
+});
+
+/**
+ * 开发规范是平台默认写给 AI 的，不再需要用户点「同步到 AI 技能目录」：
+ * 建工坊时静默写一次，写的是含 R9 通用性红线与五个能力入口的那份正文。
+ */
+it("silently installs the same guide into the skill directory on startup", async () => {
+  const { workshop, io } = harness();
+  await vi.waitFor(() => expect(io.files.get("chrys/skills/tool-dev/SKILL.md")).toBeTruthy());
+  const skill = io.files.get("chrys/skills/tool-dev/SKILL.md")!;
+  expect(skill).toContain("R9");
+  expect(skill).toContain("aawClipboard");
+  expect(skill).toContain("平台框架");
+  workshop.dispose();
+});
+
+it("syncToolGuide writes the guide through the narrow file port", async () => {
+  const io = memoryToolIO();
+  await syncToolGuide(io);
+  expect(io.files.get("chrys/skills/tool-dev/SKILL.md")).toContain("name: tool-dev");
 });
 

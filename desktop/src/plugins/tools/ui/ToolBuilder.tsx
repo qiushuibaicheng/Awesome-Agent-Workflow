@@ -19,10 +19,11 @@ export function ViolationList({ problems }: { problems: readonly ToolViolation[]
 }
 
 /**
- * 开发工具表单：一句话 + 落在哪。
+ * 开发工具表单：需求描述 + 落在哪。
  *
  * 刻意做成一行而不是半屏卡片——用户打开工具中心的第一诉求通常是"用某个
- * 工具"，不是"再做一个"。要展开细节（选目录）时才展示第二行。
+ * 工具"，不是"再做一个"。需求可以写得很细（功能、界面、边界），所以这里
+ * 不再用"一句话"暗示只能随手写一句；要展开细节（选目录）时才展示第二行。
  */
 export function NewToolForm({ workshop, available }: {
   workshop: WorkshopService;
@@ -33,12 +34,12 @@ export function NewToolForm({ workshop, available }: {
   const target = parent ?? projectsRoot;
   return <section aria-label="开发工具表单" className="build-new">
     <form onSubmit={(event) => { event.preventDefault(); void workshop.create(); }}>
-      <label className="build-new-label" htmlFor="tool-brief">一句话描述你要的工具</label>
+      <label className="build-new-label" htmlFor="tool-brief">描述你要的工具</label>
       <textarea
         id="tool-brief"
         aria-label="描述你要的工具"
         value={brief}
-        placeholder="一句话描述你要的工具，例如：把接口返回的 JSON 转成表格，还能导出 Markdown"
+        placeholder="描述你要的工具：功能、界面、边界都可以写清楚。例如：把接口返回的 JSON 转成表格，还能导出 Markdown"
         onChange={(event) => workshop.setBrief(event.target.value)}
         spellCheck={false}
         rows={2}

@@ -1,7 +1,7 @@
 ---
 name: tool-dev
 version: "1.0.0"
-description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具定义、项目结构、清单字段、运行时能力 API、红线 R1–R8 与交付前自检清单。
+description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含工具定义、项目结构、清单字段、运行时能力 API、平台框架与不可改动的文件（通用性）、红线 R1–R9 与交付前自检清单。
 ---
 
 # AAW 工具开发
@@ -35,6 +35,18 @@ description: 在 AAW 平台上开发个人工具的完整规范。当用户说"�
 
 `index.html` 之外的文件**不会被执行**，只用于留存源码。想要模块化，就在交付前把代码内联回 `index.html`。
 
+### 2.1 平台框架与不可改动的文件（R9）
+
+**为什么**：工具是要在平台上传播的。一个工具导出成一个 ZIP，别人导入后要能直接装、直接跑——前提是每台机器上的 AAW 都提供**同一套运行框架**，工具包里只装工具自己。框架是地基，不是行李。
+
+**框架由宿主提供**：工具窗口的 `aaw-tool://` 协议、CSP 沙箱、独立内存分区、五个 `window.aaw*` 能力注入、窗口尺寸与启动器/命令行，都在桌面端的 `tools-runtime/` 与 Tauri 侧 `tools_runtime.rs` 里。它们不在工具项目里，不要复制、改写或伪造。项目里的 `AGENTS.md`、导出 ZIP 里的 `README.md` 都是平台按工具身份生成的契约文件；`manifest.json` 的字段名、`schemaVersion`、`id` 规则、`html` 必须是整页字符串，也属于同一份契约。
+
+**保留文件名**（不要改、不要塞进 `sourceFiles`、不要另造同名文件）：`AGENTS.md`、`runtime.mjs`、`tool-preload.cjs`、`preload.cjs`、`package-contract.mjs`、`tool-storage.mjs`、`main.mjs`、`catalog.mjs`、`cli.mjs`、`launcher-registry.mjs`、`desktop-bridge.mjs`、`tauri.conf.json`、`capabilities.json`、`tools_runtime.rs`、`Cargo.toml`。这份清单由校验器 `rules.ts` 的 `platformFrameworkFiles` 生成，手册与代码同源。
+
+**改了会怎样**：一旦把框架文件打包进去、自己覆盖 `window.aaw*` 注入、或在 html 里写死本机绝对路径 / `file://` 地址，这个 ZIP 就绑死了你这一台机器和这一版宿主。别人导入后加载不到或行为不一致——工具失去通用性，也就没法在平台上传播。要访问外部资源，走 `aawFiles.open` 让用户当场选，或用五个 `window.aaw*` 入口，不要写死路径。
+
+**你能改的**：`manifest.json` 的字段值、`index.html` 的全部内容、可选附加源码与 `NOTES.md`。其余都是宿主的事。
+
 ## 3. manifest.json 字段
 
 | 字段 | 必填 | 说明 |
@@ -53,7 +65,7 @@ description: 在 AAW 平台上开发个人工具的完整规范。当用户说"�
 
 ## 4. 运行时能力
 
-工具窗口是沙箱页面：**没有 Node、没有文件系统任意读写、没有 Electron API**。所有能与外界交互的入口都挂在 `window` 上，只有下面四个。
+工具窗口是沙箱页面：**没有 Node、没有文件系统任意读写、没有 Electron API**。所有能与外界交互的入口都挂在 `window` 上，只有下面五个。
 
 ### 4.1 `window.aawSettings` — 只读设置
 
@@ -98,13 +110,22 @@ await aawFiles.save("result.json", JSON.stringify(data));          // 弹系统�
 
 每次调用都由用户亲手确认；没有"列目录""读任意路径"的能力，也不要假装有。
 
-### 4.5 其他
+### 4.5 `window.aawClipboard` — 剪切板文本
+
+```js
+const text = await aawClipboard.readText();   // 没有文本时返回空串
+await aawClipboard.writeText("结果");          // 上限 1 MB
+```
+
+读/写都走主进程，不要求用户手势，AI 在后台窗口里执行动作时也能用；`navigator.clipboard` 反而拿不到。剪切板历史、复制后清洗、一键复制结果都靠它。读剪切板只在用户点击或动作被显式调用时做，别一加载就静默读取。
+
+### 4.6 其他
 
 - 联网：`fetch` 可用（http/https），但清单必须声明 `permissions.network`（R8）。
 - `localStorage` / `sessionStorage` / `IndexedDB` 可用，但它们活在**内存分区**里，AAW 重启即清空。只在本次运行内用的临时状态才用它。
 - 窗口尺寸不固定（最小约 360px 宽），布局用 `max-width` / 百分比 / `clamp()`（R7）。
 
-## 5. 红线（R1–R8）
+## 5. 红线（R1–R9）
 
 `block` 会让安装失败，`warn` 只在你交付时提示。
 
@@ -118,6 +139,7 @@ await aawFiles.save("result.json", JSON.stringify(data));          // 弹系统�
 | **R6** | warn | 需要留存的数据走 `aawStore` | localStorage 在内存分区，重启即清空 | `await aawStore.set(k, v)` / `get(k)` |
 | **R7** | warn | 不得写死 ≥800px 的宽度 | 用户可能把窗口缩到 360px | 用 `max-width: 62rem` + `width: 100%` |
 | **R8** | block | 联网必须在清单声明 `permissions.network` | 用户在安装前有权知道这个工具会联网 | 加 `"permissions": { "network": true }` |
+| **R9** | block / warn | 不得改动或夹带平台框架与关键契约文件（见 §2.1） | 框架由每台机器的宿主统一提供，绑进工具包就失去通用性，别人装不上也跑不对 | 工具包只留 `manifest.json`、`index.html` 与自己的源码；删掉 `AGENTS.md`/`runtime.mjs` 之类文件，不要写死本机路径 |
 
 ## 6. 交付前自检
 
@@ -129,6 +151,7 @@ await aawFiles.save("result.json", JSON.stringify(data));          // 弹系统�
 - [ ] 会联网就声明了 `permissions.network`（R8）
 - [ ] 空输入、超长输入、非法输入三种情况都有明确提示，不是一片空白
 - [ ] 窄窗口（360px）下没有横向滚动条（R7）
+- [ ] 没有夹带 `AGENTS.md` / `runtime.mjs` 等平台框架文件，没写死本机绝对路径（R9）
 
 ## 7. 常见失败与定位
 

@@ -11,7 +11,7 @@ export interface ToolAction {
  * 让"尽量不约束"落在 warn 上——提醒但不阻止，用户自己决定。
  */
 export interface ToolViolation {
-  /** `FIELD` 表示清单字段问题；`R1`…`R7` 对应手册里的红线编号。 */
+  /** `FIELD` 表示清单字段问题；`R1`…`R9` 对应手册里的红线编号。 */
   readonly ruleId: string;
   readonly level: "block" | "warn";
   /** 位置，例如 `manifest.id`、`index.html`。 */

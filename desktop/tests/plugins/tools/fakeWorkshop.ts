@@ -21,7 +21,6 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     projects: [],
     projectsLoading: false,
     projectsRoot: "E:/AAW/tools/projects",
-    guideNote: null,
     ...overrides,
   }));
   const idle = async () => {};
@@ -39,7 +38,6 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     select: idle,
     refreshProjects: idle,
     purge: () => Promise.resolve({ text: "已清理。" }),
-    installGuide: idle,
     dispose: () => {},
   };
 }

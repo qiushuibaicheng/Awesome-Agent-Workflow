@@ -316,10 +316,14 @@
 .aaw-tools .tools-empty-steps li > span { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: color-mix(in srgb, var(--color-info) 18%, transparent); color: var(--color-info); font-size: 11px; font-weight: 700; }
 .aaw-tools .tools-empty-steps strong { display: block; font-size: 12px; font-weight: 600; line-height: 1.5; color: var(--color-ink); }
 .aaw-tools .tools-empty-steps small { display: block; margin-top: 3px; font-size: 11px; line-height: 1.5; color: var(--color-ink-subtle); }
-.aaw-tools .tools-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
-.aaw-tools .tools-empty-primary { min-height: 34px; padding: 7px 16px; }
-/* 三级操作用虚线边框，免得纯文字按钮看起来像粘在旁边按钮上的一段说明。 */
-.aaw-tools .tools-empty-examples { min-height: 34px; padding: 7px 14px; border: 1px dashed var(--color-line-strong); border-radius: 9px; }
+/* 两级而不是三个并列按钮：主 CTA 独占一行且明显更大，两个备选统一成同一
+   尺寸、同一弱样式，用间隔点连成一行。之前 primary / secondary / 虚线框三种
+   按钮各有一套内边距，看起来像三个大小不一的东西硬凑在一起。 */
+.aaw-tools .tools-empty-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 18px; }
+.aaw-tools .tools-empty-primary { min-height: 38px; padding: 9px 22px; font-size: 13px; }
+.aaw-tools .tools-empty-alts { display: flex; align-items: center; gap: 2px; }
+.aaw-tools .tools-empty-alt { min-height: 30px; padding: 5px 10px; font-size: 12px; }
+.aaw-tools .tools-empty-alt-sep { color: var(--color-ink-subtle); font-size: 12px; user-select: none; }
 .aaw-tools .tools-empty-foot { margin-top: 14px; font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
 
 /* 搜索无结果：一行灰字太容易被当成"页面坏了"，给出原因和一个能点的退路。 */
@@ -342,13 +346,6 @@
 .aaw-tools .build-rename input { width: 100%; min-height: 28px; padding: 4px 8px; border: 1px solid var(--color-line); border-radius: 7px; background: var(--color-base); color: var(--color-ink); font-size: 12px; }
 .aaw-tools .build-rename input:focus-visible { outline: 2px solid var(--color-info); outline-offset: 1px; }
 .aaw-tools .build-rename .build-hint { flex: 1 1 100%; }
-
-/* ── 规范安装 ─────────────────────────────────────────────────────────── */
-.aaw-tools .build-guide { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-surface); }
-.aaw-tools .build-guide > div { flex: 1 1 220px; min-width: 0; }
-.aaw-tools .build-guide strong { display: block; font-size: 13px; font-weight: 600; color: var(--color-ink); }
-.aaw-tools .build-guide p { margin-top: 3px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .build-guide button { min-height: 30px; padding: 5px 12px; border-radius: 7px; font-size: 12px; }
 
 /* ── 已安装卡片：能力标记与卸载确认 ──────────────────────────────────── */
 .aaw-tools .tool-badge { padding: 1px 6px; border-radius: 999px; border: 1px solid var(--color-line); font-size: 11px; }

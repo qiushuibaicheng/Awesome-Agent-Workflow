@@ -1,5 +1,5 @@
 /**
- * 工具工坊：从"一句话需求"到"装进工具中心"的完整状态机。
+ * 工具工坊：从"需求描述"到"装进工具中心"的完整状态机。
  *
  * 为什么状态不放在 React 组件里：新建工具会调用 `startNewSession`，而它
  * 一进来就把主内容区切到会话页（`sessionStart.ts` 的 `openView`）。面板
@@ -23,6 +23,7 @@ import {
   checkToolProject, createToolProject, listToolProjectSummaries,
   renameToolProject, toolProjectIdFromBrief,
   type ToolProjectCheck,
+  type ToolProjectIO,
   type ToolProjectSummary,
 } from "../runtime/project.ts";
 import { hostToolIO } from "../runtime/io.ts";
@@ -73,8 +74,6 @@ export interface WorkshopSnapshot {
   readonly projectsLoading: boolean;
   /** 默认项目根目录（AAW 数据目录 / tools / projects），只用于展示。 */
   readonly projectsRoot: string | null;
-  /** 一键写入手册的结果（成功/失败都留一条，避免按钮点了没反应）。 */
-  readonly guideNote: WorkshopNote | null;
 }
 
 export interface WorkshopService {
@@ -97,7 +96,6 @@ export interface WorkshopService {
   refreshProjects(): Promise<void>;
   /** 卸载清理：删目录与工具数据。返回给用户看的一句话。 */
   purge(id: string): Promise<WorkshopNote>;
-  installGuide(): Promise<void>;
   dispose(): void;
 }
 
@@ -105,6 +103,18 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 
 /** 文件端口：`runtime/io.ts` 里的人一个实现，这里保留旧名字给面板用。 */
 export const projectIO = hostToolIO;
+
+/**
+ * 把同一份开发规范写进 AI 技能目录（普通会话里让 AI 做工具也认得契约）。
+ *
+ * 平台默认行为，不需要用户点按钮；正文与项目里的 `AGENTS.md` 同源（`guide.ts`）。
+ * 单独导出成纯函数是为了能直接单测，调用方负责 catch——技能目录写不了不该
+ * 打断工具中心。
+ */
+export async function syncToolGuide(io: ToolProjectIO): Promise<void> {
+  const dir = await io.userDataDir("chrys", "skills");
+  await io.writeTextFile(`${dir}/tool-dev/SKILL.md`, toolGuideSkill());
+}
 
 /** 安装结果的用户话术：说清"新装/更新"、版本从哪到哪、版本号有没有动。 */
 export function describeInstall(outcome: InstallOutcome, name: string): string {
@@ -146,7 +156,6 @@ export function createWorkshop(deps: {
     projects: [],
     projectsLoading: false,
     projectsRoot: null,
-    guideNote: null,
   }));
   const view = createSnapshotView(store, (snapshot) => snapshot);
   const patch = (next: Partial<WorkshopSnapshot>) => store.setState(next);
@@ -249,6 +258,17 @@ export function createWorkshop(deps: {
       project.projects.setRecentExclusions([root]);
     } catch { /* 拿不到目录只是不排除，不影响主流程 */ }
   })();
+
+  /**
+   * 开发规范默认交给 AI，不需要用户点按钮。
+   *
+   * 每个工具项目里的 `AGENTS.md` 由 `createToolProject` 自动写（ACP agent 每个
+   * 会话都会读）；这里是补上「普通会话里让 AI 顺手做个工具」的全局技能目录，
+   * 两份正文同源（都出自 `guide.ts`）。做成启动时的静默写入：规范是平台契约，
+   * 不该变成一个要用户记得去点的开关，失败也不该弹一条打断用户的提示。
+   * 只在桌面版写；浏览器预览模式没有宿主文件通道。
+   */
+  if (host.isNative()) void syncToolGuide(io).catch(() => { /* 技能目录不可写不影响工具中心：项目里的 AGENTS.md 仍在 */ });
 
   async function refreshProjects(): Promise<void> {
     patch({ projectsLoading: true });
@@ -449,16 +469,6 @@ export function createWorkshop(deps: {
         return { text: parts.length ? parts.join("；") + "。" : "没有找到需要清理的文件。" };
       } catch (error) {
         return { text: `清理失败：${errorText(error)}`, error: true };
-      }
-    },
-
-    async installGuide() {
-      try {
-        const dir = await io.userDataDir("chrys", "skills");
-        await io.writeTextFile(`${dir}/tool-dev/SKILL.md`, toolGuideSkill());
-        patch({ guideNote: { text: "开发规范已写入 AI 技能目录，普通会话也会遵守它。" } });
-      } catch (error) {
-        patch({ guideNote: { text: `写入失败：${errorText(error)}`, error: true } });
       }
     },
 

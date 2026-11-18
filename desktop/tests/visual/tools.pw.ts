@@ -104,9 +104,19 @@ for (const width of [360, 1100]) {
   test(`empty library guides the first tool at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 850 });
     await page.goto("/tests/visual/toolsFixture.html?empty");
-    await expect(page.getByText("从一句话开始，做一个自己的工具")).toBeVisible();
+    await expect(page.getByText("从你的想法开始，做一个自己的工具")).toBeVisible();
     await expect(page.getByRole("button", { name: /开始做工具/ })).toBeVisible();
     await expect(page.getByRole("button", { name: "导入 ZIP", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "载入示例工具", exact: true })).toBeVisible();
+    // 主 CTA 明显大于两个备选，且两个备选等高：之前三种按钮各有一套内边距。
+    const boxes = await page.evaluate(() => {
+      const primary = document.querySelector<HTMLElement>(".tools-empty-primary")!.getBoundingClientRect();
+      const alts = [...document.querySelectorAll<HTMLElement>(".tools-empty-alt")].map((el) => el.getBoundingClientRect());
+      return { primary: primary.height, alts: alts.map((box) => box.height) };
+    });
+    expect(boxes.alts).toHaveLength(2);
+    expect(boxes.primary).toBeGreaterThan(boxes.alts[0]!);
+    expect(Math.abs(boxes.alts[0]! - boxes.alts[1]!)).toBeLessThan(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `node_modules/.cache/tools-empty-${width}.png` });
   });

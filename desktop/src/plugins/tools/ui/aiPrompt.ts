@@ -57,11 +57,14 @@ export function developerPrompt(): string {
 - 整个工具包（含 html）不超过 512 KB。
 - 窗口宽度不固定（最小约 360px），布局用 max-width / 百分比，不要写死宽度。
 
-## 能用的四个 window 接口
+## 能用的五个 window 接口（平台框架提供，不要自己造）
 - window.aawSettings：只读对象，键就是 settingsSchema 里的 id。
 - window.aawActions：{ [动作id]: async (input) => 结果 }，界面按钮必须调用同一个函数。
 - window.aawStore：await aawStore.set(k, v) / get(k) / delete(k) / keys()，按工具+用户隔离、上限 5 MB、跨重启保留。要留存的数据一律走它；localStorage 在内存分区里，重启即清空。
 - window.aawFiles：await aawFiles.open({ accept }) 返回 { name, text } 或 null；await aawFiles.save(name, text) 弹系统保存框。
+- window.aawClipboard：await aawClipboard.readText() 读剪切板文本（没有文本返回空串）；await aawClipboard.writeText(text) 写入，上限 1 MB。
+
+工具包里只放 manifest.json、index.html 与自己的源码：运行框架（tools-runtime/、Tauri 侧、AGENTS.md、README.md）由每台机器的宿主提供，不能改、不能夹带、不能写死本机绝对路径，否则工具就没法在平台上传播（R9）。
 
 ## actions（让 AI 也能调用）
 - 每项形如 { "id": "...", "description": "一句话说明", "inputSchema": { JSON Schema 对象 } }

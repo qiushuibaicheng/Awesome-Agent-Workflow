@@ -10,8 +10,25 @@
  */
 import type { ToolPackage, ToolViolation } from "../types.ts";
 
-export const ruleIds = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"] as const;
+export const ruleIds = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"] as const;
 export type RuleId = (typeof ruleIds)[number];
+
+/**
+ * 平台框架与契约文件的保留名（R9）。
+ *
+ * 这些文件支撑工具运行，但由**每台机器上的宿主**提供，不属于工具包：
+ * `tools-runtime/` 里的协议/CSP/能力注入与启动器、Tauri 侧 `tools_runtime.rs`、
+ * 平台生成的 `AGENTS.md`。把它们复制进 `sourceFiles` 既不会被加载，又会让这个
+ * ZIP 绑死某一版宿主——换个环境就装不上或跑不对，工具也就没法在平台上传播。
+ *
+ * 手册正文（`guide.ts`）直接读这份清单生成"不可改动的文件"表，保证"文档写的"
+ * 和"校验器查的"永远是同一组名字，不各维护一份。
+ */
+export const platformFrameworkFiles: readonly string[] = [
+  "AGENTS.md", "runtime.mjs", "tool-preload.cjs", "preload.cjs", "package-contract.mjs",
+  "tool-storage.mjs", "main.mjs", "catalog.mjs", "cli.mjs", "launcher-registry.mjs",
+  "desktop-bridge.mjs", "tauri.conf.json", "capabilities.json", "tools_runtime.rs", "Cargo.toml",
+];
 
 /**
  * 红线的一句话版本。手册文本（`guide.ts` 生成的 AGENTS.md）、提示文案与测试
@@ -30,6 +47,7 @@ export const ruleGuidance: Readonly<Record<RuleId, {
   R6: { level: "warn", rule: "需要留存的数据走 window.aawStore", fix: "await aawStore.set(k, v) / get(k)；localStorage 重启即清空" },
   R7: { level: "warn", rule: "不得写死 ≥800px 的宽度", fix: "用 width:100% + max-width，避免窄窗口横向溢出" },
   R8: { level: "block", rule: "联网必须在清单里声明 permissions.network", fix: "加 \"permissions\": { \"network\": true }" },
+  R9: { level: "block", rule: "不得改动或夹带平台框架与关键契约文件", fix: "工具包里只放 manifest.json、index.html 与自己的附加源码；框架由宿主统一提供，删掉 AGENTS.md / runtime.mjs / preload 之类文件" },
 };
 
 /** 手册里每条红线的一句话摘要，供提示文案与测试共用。 */
@@ -45,6 +63,14 @@ const remoteFetch = /\b(?:fetch|XMLHttpRequest|EventSource|WebSocket)\b/;
 const localStore = /\b(?:localStorage|sessionStorage)\b/;
 const legacySettingWrite = /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*["'`](?:setting|aaw-settings)/i;
 const fixedWidth = /(?<![-\w])width\s*:\s*(\d{3,4})px/gi;
+/**
+ * R9 的静态信号，只查两类确凿的东西，避免误伤正常工具：
+ * 1) sourceFiles 里出现平台框架/契约文件名——等于把宿主实现打进了工具包；
+ * 2) html 的属性里直接引用本机绝对路径——等于绑死作者这台机器。
+ * 至于"该用哪五个入口、哪些字段是契约"，那是手册正文讲的规范，不是正则能查的。
+ */
+const machinePath = /(?:src|href|action)\s*=\s*["'](?:file:\/\/|[A-Za-z]:[\\/]|\/Users\/|\/home\/)/i;
+const frameworkNames = new Set(platformFrameworkFiles.map((name) => name.toLowerCase()));
 const secretPatterns: readonly { readonly pattern: RegExp; readonly label: string }[] = [
   { pattern: /\bsk-[A-Za-z0-9]{16,}/, label: "OpenAI 风格密钥" },
   { pattern: /\bAK(?:IA|ID)[A-Za-z0-9]{12,}/, label: "云厂商 AccessKey" },
@@ -150,6 +176,24 @@ export function runToolRules(tool: ToolPackage, options: ToolRuleOptions = {}): 
       "html 里会发起网络请求，但清单没有声明 permissions.network。安装时用户看不到「这个工具会联网」。",
       "在清单里补 \"permissions\": { \"network\": true }。",
       "manifest.permissions"));
+
+  // R9 · 通用性：工具包只能带工具自己，不能把平台框架/契约文件一起打包。
+  // 这些文件由每台机器上的宿主提供，塞进 sourceFiles 既不会被加载，又会让
+  // 这个 ZIP 绑死当前这版宿主，别人装了也用不上——正是"没法在平台上传播"。
+  const smuggled = Object.keys(tool.sourceFiles ?? {}).filter((path) =>
+    frameworkNames.has(path.split(/[\\/]/).pop()!.toLowerCase()));
+  if (smuggled.length)
+    problems.push(violation("R9", "block",
+      `附加源码里夹带了平台框架/契约文件：${smuggled.join("、")}。这些文件由宿主统一提供，不属于工具包。`,
+      "删掉这些文件：工具包只要 manifest.json、index.html 和你自己写的源码；运行框架由每台机器上的 AAW 提供。",
+      "sourceFiles"));
+
+  // 绑死本机路径属于"能跑但只能在这台机器上跑"，warn 而不拦安装。
+  if (machinePath.test(html))
+    problems.push(violation("R9", "warn",
+      "html 里引用了本机绝对路径或 file:// 地址。工具包是要分享出去的，换台机器这些地址就不存在了。",
+      "改用相对/内联资源，或通过 aawFiles.open 让用户当场选文件，不要写死 C:\\Users\\… 之类的路径。",
+      "index.html"));
 
   return problems;
 }

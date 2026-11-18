@@ -136,3 +136,29 @@ it("shows the source path and re-checking once AI gave up", () => {
   fireEvent.click(screen.getByRole("button", { name: "我改完了，重新校验" }));
   expect(verify).toHaveBeenCalledOnce();
 });
+
+/** 需求可以精心写，界面不再用「一句话」暗示只能随手写一句。 */
+it("does not cap the brief to a single sentence, and drops the manual guide-sync module", () => {
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  const { container } = render(<ToolsPanel service={service} host={host} workshop={fakeWorkshop()} />);
+  fireEvent.click(screen.getByRole("button", { name: /开发工具/ }));
+  expect(screen.getByLabelText("描述你要的工具")).toBeTruthy();
+  expect(container.textContent).not.toContain("一句话描述你要的工具");
+  expect(container.textContent).not.toContain("让 AI 也按这份指导做工具");
+  expect(container.querySelector(".build-guide")).toBeNull();
+});
+
+/** 空状态是一个主 CTA + 两个统一尺寸的备选，不再是三种大小的按钮并排。 */
+it("gives the empty library one primary CTA and two equally-sized alternatives", () => {
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  const { container } = render(<ToolsPanel service={service} host={host} workshop={fakeWorkshop()} />);
+  expect(container.querySelectorAll(".tools-empty-primary")).toHaveLength(1);
+  expect(container.querySelectorAll(".tools-empty-alt")).toHaveLength(2);
+  expect(container.querySelector(".tools-empty-examples")).toBeNull();
+  expect(screen.getByRole("button", { name: "导入 ZIP" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "载入示例工具" })).toBeTruthy();
+});
