@@ -21,6 +21,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     projects: [],
     projectsLoading: false,
     projectsRoot: "E:/AAW/tools/projects",
+    customRoot: null,
     ...overrides,
   }));
   const idle = async () => {};
@@ -40,6 +41,9 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     refreshProjects: idle,
     migrateLegacy: () => Promise.resolve({ created: [], skipped: [] }),
     purge: () => Promise.resolve({ text: "已清理。" }),
+    chooseProjectsRoot: idle,
+    resetProjectsRoot: () => {},
+    importFromFolder: () => Promise.resolve({ text: "已导入。" }),
     dispose: () => {},
   };
 }

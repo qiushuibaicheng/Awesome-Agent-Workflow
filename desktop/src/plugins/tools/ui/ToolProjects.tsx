@@ -13,17 +13,20 @@ import type { WorkshopService } from "./workshop.ts";
  * 把它装进工具中心（只有"导出 ZIP"和"再新建一个"）。现在每个目录都能
  * 直接继续开发、预览、安装、改名、删除。
  */
-export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
+export function ToolProjectList({ workshop, installed, available, onPreview, onInstall }: {
   workshop: WorkshopService;
   /** 已安装列表：用来标出"这个项目装了没有 / 装的是哪一版"。 */
   installed: readonly PersonalTool[];
+  /** 桌面版才有目录选择器：没有时隐藏更改/恢复按钮，只展示当前位置。 */
+  available: boolean;
   onPreview: (dir: string) => void;
   onInstall: (dir: string) => void;
 }) {
   const snapshot = useStore(workshop.state);
   const [confirming, setConfirming] = useState<string>();
   const [renaming, setRenaming] = useState<{ dir: string; name: string; id: string; note?: string }>();
-  const { projects, projectsLoading, projectsRoot } = snapshot;
+  const { projects, projectsLoading, projectsRoot, customRoot } = snapshot;
+  const root = customRoot ?? projectsRoot;
   if (projectsLoading && !projects.length)
     return <p className="build-hint">正在读取工具项目…</p>;
   if (!projects.length)
@@ -49,9 +52,23 @@ export function ToolProjectList({ workshop, installed, onPreview, onInstall }: {
   return <>
     <div className="build-projects-head">
       <span>{projects.length} 个项目</span>
-      {projectsRoot
-        ? <ToolPath path={projectsRoot} label="根目录" compact />
+      {/* 自定义根目录在这里切换：新建/迁移落点与列表同步生效，默认位置里的
+          项目也仍然会出现在列表里（两边都扫，不丢项目）。 */}
+      {root
+        ? <ToolPath path={root} label={customRoot ? "自定义根目录" : "根目录"} compact />
         : <span>根目录：AAW 数据目录 / tools / projects</span>}
+      {available && (
+        <span className="build-root-actions">
+          <button type="button" className={btnGhost} onClick={() => void workshop.chooseProjectsRoot()}>
+            {customRoot ? "更改目录" : "自定义目录"}
+          </button>
+          {customRoot && (
+            <button type="button" className={btnGhost} onClick={() => workshop.resetProjectsRoot()}>
+              恢复默认
+            </button>
+          )}
+        </span>
+      )}
     </div>
     <ul aria-label="工具项目" className="build-projects">
       {projects.map((project) => {

@@ -21,8 +21,8 @@ import type { ProjectService } from "../../project/service.ts";
 import { briefMessage, repairMessage, toolGuideSkill } from "../runtime/guide.ts";
 import {
   checkToolProject, createToolProject, defaultInstalledToolsDir, listToolProjectSummaries,
-  migrateLegacyTools, prepareToolDir, readToolProject, renameToolProject, toolProjectIdFromBrief,
-  writeToolFiles,
+  migrateLegacyTools, prepareToolDir, readToolDirFiles, readToolProject, renameToolProject, toolProjectFileNames,
+  toolProjectIdFromBrief, writeToolFiles,
   type LegacyMigration,
   type ToolProjectCheck,
   type ToolProjectIO,
@@ -77,6 +77,13 @@ export interface WorkshopSnapshot {
   readonly projectsLoading: boolean;
   /** 默认项目根目录（AAW 数据目录 / tools / projects），只用于展示。 */
   readonly projectsRoot: string | null;
+  /**
+   * 用户自定义的项目根目录（设置里存的）。
+   *
+   * 设置后：新建 / 迁移 / 列表都优先用它（不套账号段，与「选择目录」同一口径），
+   * 列表同时扫默认根目录——两边都不会丢项目。
+   */
+  readonly customRoot: string | null;
 }
 
 export interface WorkshopService {
@@ -115,6 +122,12 @@ export interface WorkshopService {
   migrateLegacy(tools: readonly ToolPackage[]): Promise<LegacyMigration>;
   /** 卸载清理：删目录与工具数据。返回给用户看的一句话。 */
   purge(id: string): Promise<WorkshopNote>;
+  /** 选一个新的默认项目根目录（设置里持久化；列表与新建都跟着走）。 */
+  chooseProjectsRoot(): Promise<void>;
+  /** 清掉自定义根目录，回到默认位置。 */
+  resetProjectsRoot(): void;
+  /** 导入一个本地文件夹（含 manifest.json 与 index.html 的工具目录）。 */
+  importFromFolder(): Promise<WorkshopNote>;
   dispose(): void;
 }
 
@@ -156,9 +169,20 @@ export function createWorkshop(deps: {
   readonly host: HostService;
   /** 当前账号 id（由调用方订阅 account 后传入，换账号要能重新取）。 */
   readonly owner: () => string | undefined;
+  /**
+   * 自定义项目根目录的存取（桌面版由配置作用域 `tools-workshop.v1` 提供）。
+   * 省略时（预览模式 / 测试）没有自定义目录，一切落默认位置。
+   */
+  readonly settings?: {
+    readonly read: () => string | undefined;
+    readonly write: (value: string | undefined) => void;
+  };
 }): WorkshopService {
   const { tools, project, host } = deps;
   const io = projectIO(host);
+
+  /** 用户自定义的项目根目录：新建/迁移/列表的优先落点，不套账号段。 */
+  let customRoot: string | null = deps.settings?.read() ?? null;
 
   const store = createStore<WorkshopSnapshot>(() => ({
     brief: "",
@@ -175,6 +199,7 @@ export function createWorkshop(deps: {
     projects: [],
     projectsLoading: false,
     projectsRoot: null,
+    customRoot,
   }));
   const view = createSnapshotView(store, (snapshot) => snapshot);
   const patch = (next: Partial<WorkshopSnapshot>) => store.setState(next);
@@ -274,7 +299,7 @@ export function createWorkshop(deps: {
     try {
       const root = await io.userDataDir("tools", "projects");
       patch({ projectsRoot: root });
-      project.projects.setRecentExclusions([root]);
+      project.projects.setRecentExclusions(customRoot ? [root, customRoot] : [root]);
     } catch { /* 拿不到目录只是不排除，不影响主流程 */ }
   })();
 
@@ -292,7 +317,22 @@ export function createWorkshop(deps: {
   async function refreshProjects(): Promise<void> {
     patch({ projectsLoading: true });
     try {
-      const projects = await listToolProjectSummaries(io, { owner: deps.owner() });
+      // 两个根都扫：自定义根目录里的项目以前是“建完就找不到”——列表只认默认
+      // 根目录，用户点「继续开发」时点的其实是默认位置下的旧/迁移副本，会话
+      // 自然开在错误的目录。两根合并 + 按路径去重，哪边都不丢。
+      const [defaultProjects, customProjects] = await Promise.all([
+        listToolProjectSummaries(io, { owner: deps.owner() }),
+        customRoot
+          ? listToolProjectSummaries(io, { parent: customRoot }).catch(() => [])
+          : Promise.resolve([] as readonly ToolProjectSummary[]),
+      ]);
+      const seen = new Set<string>();
+      const projects = [...defaultProjects, ...customProjects].filter((entry) => {
+        const key = pathKey(entry.dir);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       patch({ projects });
     } catch (error) {
       patch({ note: { text: `读取工具项目失败：${errorText(error)}`, error: true } });
@@ -399,7 +439,10 @@ export function createWorkshop(deps: {
         const name = brief.slice(0, 24);
         const wanted = toolProjectIdFromBrief(brief);
         const created = await createToolProject(io, {
-          id: wanted, name, ...(state.parent ? { parent: state.parent } : {}), owner: deps.owner(),
+          id: wanted, name,
+          // 用户这次显式选的目录 > 设置里的自定义根目录 > 默认位置（带账号段）。
+          ...(state.parent ? { parent: state.parent } : customRoot ? { parent: customRoot } : {}),
+          owner: deps.owner(),
         });
         // 同名目录已存在时会退到 -2，得让用户知道"不是覆盖，是新建了一份"。
         const renamed = created.id === wanted ? "" : `已有同名项目，这次建成了 ${created.id}。`;
@@ -480,6 +523,12 @@ export function createWorkshop(deps: {
     // 目录不再由工坊打开：路径在 UI 上以文本 + 复制呈现（ToolPath），
     // 不需要 host.files.openInFileManager，也就不需要为它申请 opener 权限。
     async resume(dir) {
+      // 开会话前先确认项目还在：列表可能是旧数据（目录被移动/改名/删了），
+      // 照着旧路径开会话只会让用户面对一个空目录，还以为是自己改错了地方。
+      if (!await io.pathExists(joinPath(dir, toolProjectFileNames.manifest))) {
+        patch({ note: { text: `这个目录里没有 manifest.json：${dir}。项目可能已被移动或删除，先刷新列表确认它还在。`, error: true } });
+        return;
+      }
       await select(dir);
       patch({ note: null });
       try {
@@ -496,7 +545,11 @@ export function createWorkshop(deps: {
     refreshProjects,
 
     async migrateLegacy(list) {
-      const result = await migrateLegacyTools(io, list, { owner: deps.owner() });
+      // 迁移落点跟新建同一口径：自定义根目录优先，不套账号段。
+      const result = await migrateLegacyTools(io, list, {
+        owner: deps.owner(),
+        ...(customRoot ? { parent: customRoot } : {}),
+      });
       // 迁移出来的目录就是这些工具现在的源码位置：记下来，卡片才能判断"项目改了没重装"。
       for (const dir of result.created) {
         const id = dir.split(/[\\/]/).filter(Boolean).pop();
@@ -535,6 +588,47 @@ export function createWorkshop(deps: {
         return { text: parts.length ? parts.join("；") + "。" : "没有找到需要清理的文件。" };
       } catch (error) {
         return { text: `清理失败：${errorText(error)}`, error: true };
+      }
+    },
+
+    async chooseProjectsRoot() {
+      const path = await project.projects.pickDirectory();
+      if (!path) return;
+      customRoot = path;
+      patch({ customRoot: path });
+      deps.settings?.write(path);
+      try {
+        project.projects.setRecentExclusions([await io.userDataDir("tools", "projects"), path]);
+      } catch { /* 排除列表失败不影响目录切换本身 */ }
+      await refreshProjects();
+    },
+
+    resetProjectsRoot() {
+      customRoot = null;
+      patch({ customRoot: null });
+      deps.settings?.write(undefined);
+      void refreshProjects();
+    },
+
+    async importFromFolder() {
+      if (!host.isNative()) return { text: "导入文件夹需要桌面版。", error: true };
+      const dir = await project.projects.pickDirectory();
+      if (!dir) return { text: "已取消导入。" };
+      if (!await io.pathExists(joinPath(dir, toolProjectFileNames.manifest)))
+        return { text: `所选文件夹里没有 manifest.json：${dir}\n请选择包含 manifest.json 与 index.html 的工具目录。`, error: true };
+      const check = await checkToolProject(io, dir);
+      if (!check.ready || !check.tool) {
+        const first = check.blocking[0];
+        return { text: first ? `校验没通过：${first.message}\n${first.hint}` : "校验没通过，没有可安装的工具。", error: true };
+      }
+      try {
+        // 带上目录里的其余文件（依赖、图片等），与 ZIP 导入走同一条安装链路。
+        const extra = await readToolDirFiles(io, dir);
+        const outcome = await installArchive(check.tool, extra.files);
+        const skipped = extra.skipped.length ? `（${extra.skipped.length} 个文件超过单包上限没带走）` : "";
+        return { text: describeInstall(outcome, check.tool.name) + skipped };
+      } catch (error) {
+        return { text: errorText(error), error: true };
       }
     },
 

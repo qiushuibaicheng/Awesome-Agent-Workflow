@@ -8,7 +8,14 @@ import { createWorkshop } from "./workshop.ts";
 import { prepareProjectLauncher } from "../../project/service.ts";
 
 export const name = "tools-ui";
-export const inject = ["tools", "workbench", "host", "project", "account"];
+export const inject = ["tools", "workbench", "host", "project", "account", "configuration"];
+
+/**
+ * 工坊级设置（独立记录，整条独占）：目前只有自定义项目根目录。
+ * projectsParent 是用户选的绝对路径；不存在/为空表示用默认位置。
+ */
+const workshopSettingsKey = "aaw-desktop.tools-workshop.v1";
+const projectsParentField = "projectsParent";
 
 /** 预览标签的 kind：`tool-preview:<目录>`，同一个项目只开一个标签。 */
 const previewKind = "tool-preview";
@@ -19,6 +26,25 @@ export function previewTabId(dir: string): string {
 
 export function apply(ctx: Context): void {
   const { workbench, tools, host, project, account } = ctx;
+
+  /**
+   * 自定义项目根目录的持久化：读出来是合法路径才算设置过；写入 undefined
+   * 会把字段从记录里清掉（JSON 序列化丢弃 undefined），回到默认位置。
+   */
+  const settingsScope = ctx.configuration.register(workshopSettingsKey);
+  const rootSettings = {
+    read: () => {
+      try {
+        const value = settingsScope.read()?.[projectsParentField];
+        return typeof value === "string" && value.trim() ? value : undefined;
+      } catch { return undefined; }
+    },
+    write: (value: string | undefined) => {
+      try {
+        settingsScope.update({ [projectsParentField]: value });
+      } catch { /* 写不进去只是本次不记住，不影响本次会话内的行为 */ }
+    },
+  };
 
   /**
    * 工坊状态挂在插件上而不是面板上。
@@ -32,8 +58,12 @@ export function apply(ctx: Context): void {
     project,
     host,
     owner: () => account.state.getState().currentUser?.id,
+    settings: rootSettings,
   });
-  ctx.effect(() => () => workshop.dispose(), "tools:workshop");
+  ctx.effect(() => () => {
+    workshop.dispose();
+    settingsScope.dispose();
+  }, "tools:workshop");
 
   function ToolsView({ project: panelProject }: { project: string }) {
     const user = useStore(account.state).currentUser;

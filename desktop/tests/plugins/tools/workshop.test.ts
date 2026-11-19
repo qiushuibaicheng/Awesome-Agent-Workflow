@@ -12,10 +12,22 @@ import { createWorkshop, syncToolGuide } from "../../../src/plugins/tools/ui/wor
  * 状态里留着项目路径（UI 用它渲染可复制的文本）和"重新校验"入口。
  * 只写一句"或直接改文件"等于把死路当结论（见 docs 22 §4 P0-2）。
  */
-function harness(options: { native?: boolean } = {}) {
+function harness(options: { native?: boolean; settings?: { read: () => string | undefined; write: (value: string | undefined) => void } } = {}) {
   const io = memoryToolIO();
   const dir = "/data/tools/projects/u1/demo";
   const openInFileManager = vi.fn().mockResolvedValue(undefined);
+  // 二进制端口的最小实现：导入/导出文件夹时 listToolFiles / readBinaryFile 会用到。
+  const binaries = new Map<string, string>();
+  const readBinaryFile = (path: string) => {
+    const raw = binaries.get(path) ?? io.files.get(path);
+    if (raw === undefined) return Promise.reject(new Error(`文件不存在：${path}`));
+    if (typeof raw !== "string") return Promise.resolve(raw);
+    // 文本要走 UTF-8 字节再转 base64：btoa 遇到中文直接抛（真实宿主读的是原始字节，无此问题）。
+    const bytes = new TextEncoder().encode(raw);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return Promise.resolve(btoa(binary));
+  };
   const host = {
     isNative: () => options.native ?? true,
     skills: {
@@ -23,6 +35,15 @@ function harness(options: { native?: boolean } = {}) {
       pathExists: (path: string) => io.pathExists(path),
       listDirNames: (path: string) => io.listDirNames(path),
       writeTextFile: (path: string, contents: string) => io.writeTextFile(path, contents),
+      listToolFiles: (root: string) =>
+        Promise.resolve([...io.files.keys(), ...binaries.keys()]
+          .filter((path) => path.startsWith(`${root}/`))
+          .map((path) => path.slice(root.length + 1))),
+      readBinaryFile,
+      writeBinaryFile: (path: string, base64: string) => {
+        binaries.set(path, base64);
+        return Promise.resolve();
+      },
     },
     archives: { readTextFile: (path: string) => io.readTextFile(path) },
     files: { openInFileManager },
@@ -31,7 +52,8 @@ function harness(options: { native?: boolean } = {}) {
   const setSource = vi.fn();
   const tools = {
     state: createStore<readonly never[]>(() => []),
-    install: vi.fn(),
+    // 返回真实的 InstallOutcome：installArchive 之后 describeInstall 要读它。
+    install: vi.fn((tool: { version: string }) => ({ version: tool.version, updated: false, versionChanged: false })),
     rollback: vi.fn(),
     setSource,
     open: vi.fn(),
@@ -44,22 +66,24 @@ function harness(options: { native?: boolean } = {}) {
     () => ({ isAgentRunning: false, activeSessionId: "s1" }),
   );
   const send = vi.fn();
+  const startNewSession = vi.fn();
+  const pickDirectory = vi.fn();
   const project = {
     projects: {
       workspace: createStore(() => ({ activePath: dir })),
       setRecentExclusions: vi.fn(),
       registerProject: vi.fn(),
-      pickDirectory: vi.fn(),
+      pickDirectory,
     },
     sessions: {
       catalog: createStore(() => ({ agentKey: "agent" })),
-      startNewSession: vi.fn(),
+      startNewSession,
     },
     conversation: { send, foreground: { session } },
   } as unknown as ProjectService;
 
-  const workshop = createWorkshop({ tools, project, host, owner: () => "u1" });
-  return { workshop, io, dir, send, openInFileManager, session, setSource };
+  const workshop = createWorkshop({ tools, project, host, owner: () => "u1", ...(options.settings ? { settings: options.settings } : {}) });
+  return { workshop, io, dir, send, openInFileManager, session, setSource, project, startNewSession, pickDirectory };
 }
 
 /** 让 AI 停下来：工坊的回调是订阅里发的，不等它跑完就断言会读到旧状态。 */
@@ -190,5 +214,87 @@ it("migrates legacy tools into the signed-in account, not into anonymous", async
   expect(await io.pathExists("tools/projects/anonymous/legacy/manifest.json")).toBe(false);
   // 迁出来的目录要登记成这个工具的源码位置，卡片才判得出"项目改了没重装"。
   expect(setSource).toHaveBeenCalledWith("legacy", "tools/projects/u1/legacy");
+  workshop.dispose();
+});
+
+/**
+ * 自定义根目录：新建/迁移落它，列表两根都扫（去重）。
+ *
+ * 以前列表只扫默认根目录——用户用「选择目录」把项目建在别处后，重启就再也
+ * 找不到它；列表里同名/相似名的旧条目点「继续开发」只会开在默认位置。
+ * 这是"会话开错目录"那个 bug 的结构性根源。
+ */
+it("scans both roots and creates into the custom root", async () => {
+  let stored: string | undefined;
+  stored = "custom/root";
+  const second = harness({ settings: { read: () => stored, write: (value) => { stored = value; } } });
+  second.startNewSession.mockResolvedValue({ ok: true });
+
+  // 默认位置里先放一个旧项目。
+  await second.io.writeTextFile("tools/projects/u1/other/manifest.json", JSON.stringify({
+    schemaVersion: 1, id: "other", name: "别的", version: "1.0.0",
+  }));
+  await second.io.writeTextFile("tools/projects/u1/other/index.html", "<p>x</p>");
+
+  // 不选目录直接新建：应落在自定义根目录（不套账号段）。
+  second.workshop.setBrief("make a thing");
+  await second.workshop.create();
+  expect(await second.io.pathExists("custom/root/make-a-thing/manifest.json")).toBe(true);
+
+  await second.workshop.refreshProjects();
+  const dirs = second.workshop.state.getState().projects.map((entry) => entry.dir);
+  expect(dirs).toContain("tools/projects/u1/other");
+  expect(dirs).toContain("custom/root/make-a-thing");
+
+  // 恢复默认：设置清空，之后新建回默认位置。
+  second.workshop.resetProjectsRoot();
+  expect(stored).toBeUndefined();
+  expect(second.workshop.state.getState().customRoot).toBeNull();
+  second.workshop.dispose();
+});
+
+/**
+ * 「继续开发」的防呆：目录里已经没有 manifest.json 时绝不开会话。
+ *
+ * 照着过期列表开会话，得到的是一条落在空目录的对话——用户会以为是自己
+ * 改错了地方。宁可当场报错让他刷新列表。
+ */
+it("refuses to resume when the directory no longer has a manifest", async () => {
+  const { workshop, startNewSession } = harness();
+  await workshop.resume("/gone/tool");
+  expect(startNewSession).not.toHaveBeenCalled();
+  expect(workshop.state.getState().note?.error).toBe(true);
+  expect(workshop.state.getState().note?.text).toContain("manifest.json");
+});
+
+/**
+ * 文件夹导入：manifest + index.html + 其余文件一起走 ZIP 同一条安装链路，
+ * 落进 installed/（运行副本），不碰用户项目区。
+ */
+it("imports a tool from a folder through the same archive pipeline", async () => {
+  const { workshop, io, pickDirectory, startNewSession } = harness();
+  const source = "E:/somewhere/my-tool";
+  await io.writeTextFile(`${source}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0",
+  }));
+  await io.writeTextFile(`${source}/index.html`, "<p>hi</p>");
+  await io.writeTextFile(`${source}/assets/data.txt`, "数据");
+  pickDirectory.mockResolvedValue(source);
+
+  const note = await workshop.importFromFolder();
+  expect(note.error).toBeUndefined();
+  // 安装带上了来源目录，文件都写进了 installed/ 运行副本。
+  expect(startNewSession).not.toHaveBeenCalled();
+  expect(await io.pathExists("tools/installed/u1/demo/index.html")).toBe(true);
+  expect(await io.pathExists("tools/installed/u1/demo/assets/data.txt")).toBe(true);
+  workshop.dispose();
+});
+
+it("folder import fails clearly when there is no manifest", async () => {
+  const { workshop, pickDirectory } = harness();
+  pickDirectory.mockResolvedValue("E:/somewhere/empty");
+  const note = await workshop.importFromFolder();
+  expect(note.error).toBe(true);
+  expect(note.text).toContain("manifest.json");
   workshop.dispose();
 });

@@ -169,6 +169,19 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     }
   }
 
+  /** 从本地文件夹导入一个工具目录：与 ZIP 同一条安装链路（校验 → 落盘 → 安装）。 */
+  async function importFolder() {
+    if (busy) return;
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      const note = await workshop.importFromFolder();
+      setFeedback({ text: note.text, ...(note.error ? { error: true as const } : {}) });
+    } catch (error) {
+      setFeedback({ text: errorText(error), error: true });
+    } finally { setBusy(false); }
+  }
+
   async function importFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -337,6 +350,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
           <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">描述你的需求，AI 做一个能用的小工具</p></div>
           {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
+          {host.isNative() && <button type="button" className={btnSecondary} disabled={busy} onClick={() => void importFolder()}>导入文件夹</button>}
           <button type="button" className={btnSecondary} onClick={() => picker.current?.click()}>导入工具</button>
         </div>
         <div className="tools-tabs mt-4 flex flex-wrap items-center gap-2">
@@ -371,6 +385,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           <ToolProjectList
             workshop={workshop}
             installed={tools}
+            available={host.isNative()}
             onPreview={(dir) => void previewProject(dir)}
             onInstall={(dir) => void installProject(dir)}
           />
