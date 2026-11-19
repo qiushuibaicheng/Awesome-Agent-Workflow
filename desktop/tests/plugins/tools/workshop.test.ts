@@ -113,7 +113,7 @@ it("silently installs the same guide into the skill directory on startup", async
   const skill = io.files.get("chrys/skills/tool-dev/SKILL.md")!;
   expect(skill).toContain("R9");
   expect(skill).toContain("aawClipboard");
-  expect(skill).toContain("平台框架");
+  expect(skill).toContain("什么是内核");
   workshop.dispose();
 });
 
