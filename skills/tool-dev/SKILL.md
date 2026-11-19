@@ -1,7 +1,7 @@
 ---
 name: tool-dev
 version: "1.0.0"
-description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含动手前先与需求方对齐的方法论、工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、九个能力入口与联网声明、什么是内核与严禁修改的约束（R9）、红线与交付前自检。
+description: 在 AAW 平台上开发个人工具的完整规范。当用户说"我想要一个能……的工具"、需要新建或修改工具项目、或工具校验失败需要修复时使用。包含动手前先与需求方对齐的方法论、工具能做什么（文本处理、剪切板、文件、留存、联网等场景）、项目结构、清单字段、能力入口与联网声明、什么是内核与严禁修改的约束（R9）、红线与交付前自检。
 ---
 
 # <工具名> · AAW 工具项目
@@ -13,7 +13,7 @@ description: 在 AAW 平台上开发个人工具的完整规范。当用户说"�
 
 用户的需求往往只有一句话，直接开写十有八九做出来不是他要的。按这个顺序来：
 
-1. **先复述再动手**：用自己的话讲清"这个工具给谁用、输入是什么、输出是什么、用户最高频的那一步是什么"，请用户确认后再写代码。
+1. **先复述再动手**：用自己的话讲清"这个工具给谁用、输入是什么、输出是什么、用户最高频的那一步是什么"，请用户确认后再写代码。需求已经写得足够具体时，可以在一条回复里完成复述与实现，把你的假设列出来供用户核对。
 2. **有歧义一次问完**：把问题凑齐一次问，不要挤牙膏式逐条确认。
 3. **先做最小版本**：核心流程能跑通就先交付验收，再按反馈扩展；不要一上来堆用户没要的功能，也不要为了让工具"显得完整"加装饰性模块。
 4. **改已有工具时同理**：先弄清用户要改的是哪个行为、期望的新行为是什么，再动代码。
@@ -34,16 +34,16 @@ description: 在 AAW 平台上开发个人工具的完整规范。当用户说"�
 
 它能读写系统剪切板、读写用户亲手选的文件、把数据留到下次打开、按声明联网访问 http/https，在你声明之后还能常驻后台与弹提醒。需要第三方库时，把依赖放进工具目录、写一个 `preload.js` 就能用（见下面「带依赖的工具」）。**不能**读任意本地路径、不能调用摄像头或录屏——平台把这些挡在沙箱外面，是为了让一个 ZIP 能在别人机器上直接装、直接跑。
 
-技术上的边界：默认形态是自包含的 `index.html`（HTML/CSS/JS 都在里面），`manifest.json` 描述身份、动作、设置与能力。**要带依赖时可以多一个 `preload.js` 与 `node_modules/`**——Node 只在 `preload.js` 里可用，页面本身拿不到。不是多页面站点，不是后台守护进程。必须有至少一个动作让 AI 也能调用——界面上的按钮和 `aawActions` 里的函数是同一件事，人和 AI 走同一条路。
+技术上的边界：默认形态是自包含的 `index.html`（HTML/CSS/JS 都在里面），`manifest.json` 描述身份、动作、设置与能力。**要带依赖时可以多一个 `preload.js` 与 `node_modules/`**——Node 只在 `preload.js` 里可用，页面本身拿不到。不是多页面站点，不是后台守护进程。**必须至少声明并实现一个动作**（红线 R3）：界面上的按钮和 `aawActions` 里的函数是同一件事，人和 AI 走同一条路。
 
 ## 项目结构
 
-- `manifest.json`：身份、动作、设置、能力声明（**你主要编辑它**）
-- `index.html`：界面入口，默认自包含（**你主要编辑它**）
+- `manifest.json`：身份、动作、设置、能力声明（**你主要编辑它**；`html` 字段留空）
+- `index.html`：界面入口，运行时**以它为准**（**你主要编辑它**；界面只写这一处，不要同时写进清单的 html 字段）
 - `preload.js`：可选，工具自己的 Node 侧桥接；需要在 `manifest.json` 里写 `"preload": "preload.js"`
 - `node_modules/`：可选，随包分发的依赖（只有 `preload.js` 能用）
 - `NOTES.md`：可选，写设计取舍
-- `AGENTS.md`：本文件，平台生成，不要改（见下节 R9）
+- `AGENTS.md`：本文件，平台生成；你没有它也不许自己新建（见下节 R9）
 
 ## 带依赖的工具
 
@@ -79,8 +79,8 @@ aawBridge.expose("services", {
 
 **两条硬限制**：
 
-- 页面里没有 Node。`require` 只在 `preload.js` 里存在，暴露什么由你决定——别把整个 `fs` 直接交出去。
-- **原生模块（`.node`）不能随包传。** 它绑定操作系统、CPU 架构和 Electron 版本，换台机器必崩。这类能力要么平台内置（问我们加），要么改用纯 JS 等价物。
+- 页面里没有 Node。`require` 只在 `preload.js` 里存在；`aawBridge` 也只在 `preload.js` 里可用（平台注入），页面拿到的只是你 expose 出来的对象——暴露什么由你决定，别把整个 `fs` 直接交出去。
+- **原生模块（`.node`）不能随包传。** 它绑定操作系统、CPU 架构和 Electron 版本，换台机器必崩。遇到只有原生模块才能做的事，改用纯 JS 等价物，或明确告诉用户这个能力平台暂不支持。
 
 ## 什么是内核、哪些不许改（R9）
 
@@ -89,7 +89,7 @@ aawBridge.expose("services", {
 - 工具窗口的 `aaw-tool://` 协议、CSP 沙箱、独立内存分区；
 - 下面「运行时能力」一节列出的全部 `window.aaw*` 注入入口；
 - 平台生成的契约文件：项目里的 `AGENTS.md`、导出 ZIP 里的 `README.md`；
-- `manifest.json` 的字段名、`schemaVersion`、`id` 规则、`html` 必须是整页字符串这些约定。
+- `manifest.json` 的字段名、`schemaVersion`、`id` 规则，以及「界面以 `index.html` 文件为准」这些约定。
 
 内核由每台机器上的宿主在运行时提供（桌面端 `tools-runtime/` 与 Tauri 侧 `tools_runtime.rs`），**严禁修改、伪造或绕过**：
 
@@ -110,57 +110,60 @@ aawBridge.expose("services", {
   "id": "<工具 id>",
   "name": "<工具名>",
   "version": "1.0.0",
-  "icon": "字",
-  "html": "<完整自包含 HTML>",
+  "icon": "表",
+  "html": "",
   "actions": [
     { "id": "run", "description": "一句话说明", "inputSchema": { "type": "object", "properties": {} } }
   ],
   "settingsSchema": [
     { "id": "indent", "label": "缩进空格数", "type": "number", "default": 2, "min": 0, "max": 8 }
   ],
-  "permissions": { "network": false },
-  "author": "你的名字",
-  "source": "https://…"
+  "permissions": { "network": false }
 }
 ```
 
-- `id` 已经定好，**不要改**（R1）。
-- `version` 每次交付递增。
-- `html` 是整页字符串：写的时候注意转义，别漏 `</script>`。
-- `settingsSchema` 的 `type` 只能是 text / number / boolean / select；select 要带 `options`。
+- **必填**：`schemaVersion`（固定 1）、`id`、`name`（不超过 60 字）、`version`，以及界面本身（写在 `index.html`）。其余字段全部可选。
+- `id`：项目里已经定好，**不要改**（R1）。命名规则：小写字母或数字开头，只能含小写字母、数字、点和短横，最长 64（如 `json-formatter`）。新建工具时按此规则自拟。
+- `html`：**项目里留空即可**——运行时以 `index.html` 文件为准，界面只写 index.html 一处，避免两份不同步。只有在没有项目目录、直接交付一个 JSON 包时，才把整页 HTML 转义进这个字符串（引号、换行、反斜杠都要转义，手写极易错，建议用脚本生成）。
+- `icon`：可选，1–2 个字符（一个 emoji 或字母/汉字），缺省取名称首字。
+- `settingsSchema`：可选。`type` 只能是 text / number / boolean / select；select 的 `options` 是 `{ "label": "显示名", "value": "值" }` 数组。
+- `background`：可选。声明常驻/定时才写：`{ "reason": "剪切板历史", "schedule": true }`（`schedule` 省略表示只常驻不定时）。
+- `author` / `source`：可选，作者名与来源链接，分享别人的包时用于判断可信度。
 
 ## 运行时能力
 
 **下行**（宿主 → 工具，注入到 `window` 上）：
 
 1. `window.aawSettings` — 只读设置对象，键是 settingsSchema 的 id。
-2. `window.aawStore` — `await set(k,v) / get(k) / delete(k) / keys()`，按工具+用户隔离、上限 5 MB、**跨重启保留**。`aawStore.scope("shared")` 是用户级共享区：多个工具能看到同一份数据，适合"A 工具产出、B 工具消费"。
+2. `window.aawStore` — `await set(k,v) / get(k) / delete(k) / keys()`，按工具+用户隔离、**跨重启保留**；单值 ≤ 256 KB、整个工具 ≤ 5 MB，超限 `set` 会抛错（先清理再写）。`aawStore.scope("shared")` 是用户级共享区：多个工具能看到同一份数据，适合"A 工具产出、B 工具消费"。
 3. `window.aawFiles` — `await open({ accept, multiple, directory, binary })`：
    - 默认返回 `{ name, path, size, text }`，取消返回 `null`；
    - `multiple: true` 返回数组（最多 32 个）；
    - `directory: true` 返回 `{ name, path, isDirectory: true, entries: [{ name, isDirectory }] }`，只列顶层、最多 200 条；
    - `binary: true` 返回 `bytes`（ArrayBuffer，上限 32 MB）而不是 `text`；
    - `await save(name, data)`：`data` 可以是字符串或 ArrayBuffer，上限 8 MB；
-   - `onDrop(list => …)`：用户把文件拖进窗口时触发，每项带 `token`，用 `await read(token)` 取内容。
-4. `window.aawClipboard` — `readText()` / `writeText(text)`（上限 1 MB）；`readImage()` 返回 `{ png: ArrayBuffer } | null`；`writeImage(bytes)` 写图片。
+   - `onDrop(list => …)`：用户把文件拖进窗口时触发，每项带 `token`，用 `await aawFiles.read(token)` 取内容。
+4. `window.aawClipboard` — `readText()` / `writeText(text)`（上限 1 MB）；`readImage()` 返回 `{ png: ArrayBuffer } | null`；`writeImage(bytes)` 写图片。写入不需要用户手势，读取仍要遵守下面的时机规则。
 5. `window.aawSystem` — `info()` 给 `{ platform, arch, osVersion, cpus, totalMemory, freeMemory, homedir, tmpdir }`；`disk()` 给 `{ total, free }`。**只读白名单**，没有进程列表、没有环境变量全集。
 6. `window.aawSecrets` — `set(k,v) / get(k) / delete(k)`，走系统加密存储（safeStorage），**不落明文**。API Key、Token 放这里，不要写进 html 或 `aawStore`。
-7. `window.aawLifecycle` — `notify(title, body)` 弹系统通知；`keepAlive({ reason })` 声明关窗后继续运行；`schedule(seconds)` 定时（≥ 60 秒）配 `onSchedule(cb)` 收回调。**常驻与定时必须在清单 `background` 里声明**，否则视为未申请。关窗只是把窗口藏起来、进程还在，用户可以随时在工具中心的「⋯ → 停止后台运行」或托盘菜单里彻底停掉它——所以别把常驻当成用户看不见的事，`reason` 写清楚。
+7. `window.aawLifecycle` — `notify(title, body)` 弹系统通知；`keepAlive({ reason })` 声明常驻——**声明后**用户关窗只是隐藏、进程继续，可从托盘或工具中心「⋯ → 停止后台运行」彻底停掉；**不声明 keepAlive 的工具，关窗就是退出**。`schedule(seconds)` 定时唤醒（至少 60 秒，更小会失败）配 `onSchedule(cb)` 收回调。常驻与定时必须在清单 `background` 里声明（格式见 manifest 一节），否则视为未申请——`reason` 写清楚为什么需要常驻，别把常驻当成用户看不见的事。
 8. `window.aawContext` — `selection`（唤起时可用的文本，没有就是空串）、`origin`（`hotkey` / `launcher` / `action`）、`probe()` 主动再取一次。需要它就在清单写 `"needsSelection": true`。
 9. `window.aawBus` — `emit(topic, payload)` / `on(topic, cb)`，工具之间在线广播，**不保留历史**（对方不在线就收不到）。
 
 **上行**（工具 → 宿主）：
 
-10. `window.aawActions` — `{ [actionId]: async (input) => 结果 }`，界面上按钮必须调用同一个函数；8 秒内返回、结果 < 512 KB、幂等。
+10. `window.aawActions` — `{ [actionId]: async (input) => 结果 }`，界面上按钮必须调用同一个函数；8 秒内返回、结果 < 512 KB、幂等（同一输入重复调用结果相同，平台在用户重试时会再次调用）。
 
 补充规则：
 
-- 联网默认可用；想限定域名或主动收紧，在 `permissions.network` 里写 `{ "hosts": ["*.corp.example.com"] }` 或 `false`。要访问自签证书的内网接口再加 `"insecure": true`（安装时会提示用户）。
+- **联网默认可用**。`permissions.network` 是声明给用户看的：写 `true`（会联网）、`false`（承诺不联网）、`{ "hosts": ["*.corp.example.com"] }`（限定域名）；访问自签证书的内网接口再加 `"insecure": true`（安装时会提示用户）。会联网的工具请声明，让用户知情。
+- `requires`：`{ "contract": 1, "capabilities": [...] }` 说明最低要求，不写就宽松放行，导出时平台会自动补上；写了之后，满足不了的宿主会显示说明页而不是白屏。**能力名只能是这十二个**：settings、store、sharedStore、files、clipboard、actions、system、secrets、lifecycle、context、bus、network（与上面各条目的 `window.aaw*` 名一一对应）。
+- 分清两种「记住」：`settingsSchema` 是用户在工具中心能改的配置（代码里经 `aawSettings` 只读）；`aawStore` 是工具自己记的状态，用户看不见，不要拿来当设置项（R4）。
+- 密钥的推荐路径：运行时让用户输入一次 → `aawSecrets.set` 存下 → 以后 `aawSecrets.get`。不要写进 html、清单或 `aawStore`（R5）。
 - `navigator.clipboard` 也能用，但它要求用户手势、在 AI 执行的动作里拿不到；优先用 `aawClipboard`。
 - `localStorage` 也能用，但它活在内存分区，AAW 重启会清空——要留存就走 `aawStore`（R6）。
 - 读剪切板只在用户点击或动作被显式调用时做，不要在页面一加载就静默读取。
-- 窗口宽度不固定（最小约 360px），布局别写死宽度（R7）。
-- 清单里可以写 `requires: { "contract": 1, "capabilities": ["files"] }` 说明最低要求；不写就宽松放行，导出时平台会自动补上。写了之后，在给不了这些条件的宿主上打开会看到一张说明页（需要什么、当前是什么、怎么解决），而不是白屏——所以这个字段值得写准。
+- 布局不要给容器写死固定像素宽度：用 `width:100%` + `max-width`。红线 R7 查的是 ≥800px 的写死宽度，但任何写死宽度在窄窗口（最小约 360px）都会坏；宽内容（表格、代码行）放进自身 `overflow-x: auto` 的容器里滚动，不要撑破页面。
 
 ## 红线
 
@@ -174,35 +177,36 @@ aawBridge.expose("services", {
 | R6 | warn | 需要留存的数据走 window.aawStore | await aawStore.set(k, v) / get(k)；localStorage 重启即清空 |
 | R7 | warn | 不得写死 ≥800px 的宽度 | 用 width:100% + max-width，避免窄窗口横向溢出 |
 | R8 | warn | 联网的工具应该声明 permissions.network | 不声明也能跑（默认允许），但用户看不到「这个工具会联网」；补上 "permissions": { "network": true }，或写 hosts 限定域名 |
-| R9 | block | 不得改动或夹带平台框架与关键契约文件 | 工具包里只放 manifest.json、index.html 与自己的附加源码；框架由宿主统一提供，删掉 AGENTS.md / runtime.mjs / preload 之类文件 |
+| R9 | block | 不得改动或夹带平台框架与关键契约文件 | 工具包只保留 manifest.json、index.html、preload.js 与你自己写的源码（preload.js 是你的文件，保留）；AGENTS.md / README.md / runtime.mjs 这些平台文件不该出现在包里，出现就删 |
 
 ## 交付流程
 
-1. 改 `manifest.json` + `index.html`。
-2. 平台会自动校验并把问题回给你：出现 `必须修` 的条目就按"怎么改"修掉，再等下一轮校验。
-3. 校验通过后平台会生成预览，用户点验收才真正安装。
-4. 不要为了让校验通过而删掉功能；宁可改实现方式。
+1. 界面写 `index.html`，其余声明写 `manifest.json`（`html` 留空）。
+2. 用户在工具中心面板看校验结果：保存文件后回到面板即可，必要时点「我改完了，重新校验」。
+3. 校验回给你的条目分两级：`必须修`（= 红线表里的 block）就按"怎么改"修掉，`建议`（warn）按情况采纳。
+4. 校验通过后平台生成预览，用户点验收才真正安装。
+5. 不要为了让校验通过而删掉功能；宁可改实现方式。
 
 ## 自检（提交前逐条过）
 
 - [ ] 交付的功能范围就是用户确认过的，没有私自加减
 - [ ] 没有覆盖或伪造任何 `window.aaw*` 注入，也没有把 tools-runtime 框架文件带进工具包
-- [ ] 没有任何外部 `src` / `href`
+- [ ] 没有任何远程引用（http / https / 协议相对地址）；用相对路径引用自己目录里的文件可以
+- [ ] 界面只写在 `index.html`，清单的 `html` 字段留空
 - [ ] 每个 action 在 `aawActions` 里都有同名函数，界面按钮复用同一函数
 - [ ] 需要留存的数据走 `aawStore`；要跨工具共享才用 `aawStore.scope("shared")`
 - [ ] 用到剪切板时是用户主动触发的，不是打开就偷偷读
 - [ ] API Key / Token 走 `aawSecrets`，没有硬编码在 html 或 manifest 里
-- [ ] 用到的能力名写进了 `requires.capabilities`（不写也能跑，但写了别人装之前就知道）
+- [ ] 用到的能力名写进了 `requires.capabilities`，名字来自上面那份十二个的名单
 - [ ] 需要常驻或定时的话，在 `background` 里声明了，理由写得让人看得懂
-- [ ] 会联网就按需声明了 `permissions.network`（不限域名写 true，限定写 hosts）
-- [ ] 会联网就声明了 `permissions.network`
-- [ ] 空输入 / 超长输入 / 非法输入都有提示，不是白屏
-- [ ] 360px 宽下没有横向滚动
+- [ ] 会联网就声明了 `permissions.network`（会联网 true / 不联网 false / 限域名写 hosts）
+- [ ] 空输入 / 超长输入 / 非法输入都有提示，不会白屏（代码里每个分支都有返回）
+- [ ] 容器没有写死像素宽度，宽内容在 `overflow-x: auto` 的容器里滚动（渲染效果让用户在预览里确认）
 
 
 
 ## 在普通会话里被要求做工具时
 
-1. 先问一句"要不要在工具中心新建一个项目"——建项目会自带本规范与预览、安装链路。
-2. 如果用户只是要一段代码，就把 `manifest.json` 与 `index.html` 一起给出，并在结尾附上红线自检结果。
+1. 先问一句"要不要在工具中心新建一个项目"——建项目会自带本规范与预览、安装链路，id 也由平台分配。
+2. 如果用户只是要一段代码，就把 `manifest.json` 与 `index.html` 一起给出，并在结尾附上红线自检结果。此时 id 没人分配，按 manifest 一节的命名规则自拟，并明确告诉用户把这两个文件放进哪个目录。
 3. 默认不要引入构建步骤：单文件 `index.html` 就够了。确实需要第三方库时，走「带依赖的工具」那套（`preload.js` + `node_modules/`），别让用户为了装一个工具先跑 `npm run build`。

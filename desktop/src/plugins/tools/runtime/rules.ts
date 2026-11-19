@@ -47,7 +47,7 @@ export const ruleGuidance: Readonly<Record<RuleId, {
   R6: { level: "warn", rule: "需要留存的数据走 window.aawStore", fix: "await aawStore.set(k, v) / get(k)；localStorage 重启即清空" },
   R7: { level: "warn", rule: "不得写死 ≥800px 的宽度", fix: "用 width:100% + max-width，避免窄窗口横向溢出" },
   R8: { level: "warn", rule: "联网的工具应该声明 permissions.network", fix: "不声明也能跑（默认允许），但用户看不到「这个工具会联网」；补上 \"permissions\": { \"network\": true }，或写 hosts 限定域名" },
-  R9: { level: "block", rule: "不得改动或夹带平台框架与关键契约文件", fix: "工具包里只放 manifest.json、index.html 与自己的附加源码；框架由宿主统一提供，删掉 AGENTS.md / runtime.mjs / preload 之类文件" },
+  R9: { level: "block", rule: "不得改动或夹带平台框架与关键契约文件", fix: "工具包只保留 manifest.json、index.html、preload.js 与你自己写的源码（preload.js 是你的文件，保留）；AGENTS.md / README.md / runtime.mjs 这些平台文件不该出现在包里，出现就删" },
 };
 
 /** 手册里每条红线的一句话摘要，供提示文案与测试共用。 */
