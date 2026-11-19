@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { createStore } from "zustand";
 import { ToolsPanel } from "../../src/plugins/tools/ui/ToolsPanel.tsx";
+import { ToolsPanelSurface } from "../../src/plugins/tools/ui/surface.tsx";
 import { sampleTool } from "../../src/plugins/tools/ui/sample.ts";
 import { resolveToolSettings } from "../../src/plugins/tools/runtime/settings.ts";
 import type { PersonalTool } from "../../src/plugins/tools/types.ts";
@@ -95,4 +96,13 @@ const workshop = fakeWorkshop(params.has("stalled") ? {
   projects: [...otherProjects],
   check: null,
 } : {});
-createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh" }}><ToolsPanel service={service} host={host} workshop={workshop} /></main>);
+createRoot(document.getElementById("root")!).render(
+  // 和真实应用一样挂进外壳里（`ToolsPanelSurface` 就是 workbench.tsx 里那个）。
+  // 以前夹具直接把面板塞进 <main>：父级是 block，面板必然满宽，于是「面板在
+  // 横排 flex 里塌成一条竖条」这种 bug 永远拍不出来。
+  <main style={{ height: "100vh" }}>
+    <ToolsPanelSurface visible>
+      <ToolsPanel service={service} host={host} workshop={workshop} />
+    </ToolsPanelSurface>
+  </main>,
+);

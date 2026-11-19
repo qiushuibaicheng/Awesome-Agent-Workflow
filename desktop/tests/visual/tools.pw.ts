@@ -197,3 +197,26 @@ for (const width of [360, 740]) {
     await page.screenshot({ path: `node_modules/.cache/tools-blank-${width}.png` });
   });
 }
+
+/**
+ * 面板必须铺满右栏，不能塌成一条竖条。
+ *
+ * `.aaw-tools` 是 `container-type: inline-size` 容器，固有宽度会被抑制；一旦
+ * 它的父级是横排 flex（`flex` 而没有 `flex-col`），flex-basis 就是 0，只剩
+ * padding —— 宽度二三十像素，「工具中心」四个字一字一行。夹具现在挂的是
+ * 真实外壳 `ToolsPanelSurface`，所以这条断言同时守住"外壳别改回横排 flex"。
+ */
+for (const width of [300, 360, 740]) {
+  test(`tool panel fills the pane at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 760 });
+    await page.goto("/tests/visual/toolsFixture.html");
+    const title = page.getByRole("heading", { name: "工具中心", exact: true });
+    await expect(title).toBeVisible();
+
+    expect((await page.locator(".aaw-tools").boundingBox())?.width).toBeGreaterThan(width - 2);
+    // 一行的高度是 26px；塌成竖条时这里会是七八十甚至更高。
+    expect((await title.boundingBox())?.height).toBeLessThan(40);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `node_modules/.cache/tools-pane-${width}.png` });
+  });
+}

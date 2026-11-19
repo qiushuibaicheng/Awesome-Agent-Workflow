@@ -4,6 +4,7 @@ import { WrenchIcon } from "../../../shared/ui/icons.tsx";
 import { pathKey } from "../../../shared/panelPaths.ts";
 import type { PanelViewProps } from "../../workbench/types.ts";
 import { ToolsPanel } from "./ToolsPanel.tsx";
+import { ToolsPanelSurface } from "./surface.tsx";
 import { ToolPreviewTab } from "./ToolPreviewTab.tsx";
 import { createWorkshop } from "./workshop.ts";
 import { prepareProjectLauncher } from "../../project/service.ts";
@@ -91,7 +92,7 @@ export function apply(ctx: Context): void {
     const user = useStore(account.state).currentUser;
     // 换账号后目录与安装记录都换了一层，用 key 让面板重新挂载、重新拉列表。
     return (
-      <section aria-label={visible ? "工具面板" : undefined} hidden={!visible} className="flex h-full min-h-0">
+      <ToolsPanelSurface visible={visible}>
         <ToolsPanel
           key={user?.id ?? "anonymous"}
           service={tools}
@@ -109,7 +110,7 @@ export function apply(ctx: Context): void {
             });
           }}
         />
-      </section>
+      </ToolsPanelSurface>
     );
   }
 
