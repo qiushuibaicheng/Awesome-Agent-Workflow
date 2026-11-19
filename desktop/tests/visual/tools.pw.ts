@@ -9,6 +9,26 @@ async function selectToolAction(page: Page, tool: string, action: string) {
   await item.click();
 }
 
+/**
+ * 内容区里不能有元素横向越界。
+ *
+ * 右栏是 `overflow: hidden`：比容器宽的卡片会被**裁掉**，document.scrollWidth
+ * 一点变化都没有 —— 所以"没有横向滚动条"根本证明不了没被裁（300px 下
+ * 「可以验收」徽标和"还没有 index.html"就是这么消失的）。这里直接比右边缘。
+ */
+async function expectNoClip(page: Page, selector = ".tools-content") {
+  const clipped = await page.evaluate((target) => {
+    const box = document.querySelector<HTMLElement>(target);
+    if (!box) return ["missing " + target];
+    const right = box.getBoundingClientRect().right;
+    return Array.from(box.querySelectorAll("*"))
+      .filter((element) => element.getBoundingClientRect().right > right + 0.5)
+      .map((element) => element.className || element.tagName)
+      .slice(0, 6);
+  }, selector);
+  expect(clipped).toEqual([]);
+}
+
 for (const width of [360, 740, 1100]) for (const theme of ["dark", "warm"]) {
   test(`plugin library and management fit ${width}px in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 850 });
@@ -133,18 +153,21 @@ test("loading example tools fills the library", async ({ page }) => {
   await page.screenshot({ path: "node_modules/.cache/tools-examples-1100.png" });
 });
 
-for (const width of [360, 740]) {
+for (const width of [300, 360, 740]) {
   test(`stalled project hands the work back to the user at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 720 });
     await page.goto("/tests/visual/toolsFixture.html?stalled");
     await page.getByRole("button", { name: /开发工具/ }).click();
     await expect(page.getByText("按这个路径自己改", { exact: true })).toBeVisible();
     const recheck = page.getByRole("button", { name: "我改完了，重新校验", exact: true });
+    // 300px 下交接块在首屏之外（内容更高），但必须**滚得到**、且不被裁。
+    await recheck.scrollIntoViewIfNeeded();
     await expect(recheck).toBeInViewport();
     // 路径不再是按钮：完整值在 data-hint 里，窄栏省略但不丢信息。
     await expect(page.locator(".build-stalled .tool-path code")).toHaveAttribute("data-hint", "E:/AAW/tools/projects/u1/json-table");
     // 窄面板下"说明 + 两个按钮"不能撑出横向滚动条。
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expectNoClip(page);
     await page.screenshot({ path: `node_modules/.cache/tools-stalled-${width}.png` });
     // 列表行里的路径也是文本：滚到底确认它没被挤成半行。
     const rowPath = page.getByRole("list", { name: "工具项目" }).locator(".tool-path code").first();
@@ -154,7 +177,7 @@ for (const width of [360, 740]) {
   });
 }
 
-for (const width of [360, 740]) {
+for (const width of [300, 360, 740]) {
   test(`one row per project, only the open one expands at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 760 });
     await page.goto("/tests/visual/toolsFixture.html?projects");
@@ -168,6 +191,18 @@ for (const width of [360, 740]) {
     await expect(page.getByRole("button", { name: "Markdown 导出" })).toHaveAttribute("aria-expanded", "false");
     // 窄栏不能因为"多一个展开块"撑出横向滚动条。
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // 卡片必须跟着面板宽度走。300px 右栏（content 272）时它曾经宽 44px、
+    // 右侧被 overflow: hidden 裁掉——徽标和"还没有 index.html"就那样消失了。
+    const sizes = await page.evaluate(() => {
+      const content = document.querySelector(".tools-content") as HTMLElement;
+      const style = getComputedStyle(content);
+      const available = content.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const row = document.querySelector(".build-project") as HTMLElement;
+      return { available, row: row.getBoundingClientRect().width };
+    });
+    expect(sizes.row).toBeLessThanOrEqual(sizes.available + 1);
+    expect(sizes.row).toBeGreaterThanOrEqual(sizes.available - 1);
+    await expectNoClip(page);
     await page.screenshot({ path: `node_modules/.cache/tools-projects-${width}.png` });
     // 再点一次标题就收起：这是僵尸卡片缺的那条出口。
     await page.getByRole("button", { name: "接口 JSON 转表格" }).click();
@@ -176,7 +211,7 @@ for (const width of [360, 740]) {
   });
 }
 
-for (const width of [360, 740]) {
+for (const width of [300, 360, 740]) {
   test(`a project without a verdict yet stays actionable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 760 });
     await page.goto("/tests/visual/toolsFixture.html?blank");
@@ -194,6 +229,7 @@ for (const width of [360, 740]) {
     // （列表里另有一个真的没有 index.html 的项目，所以只看展开的这一行。）
     await expect(open.getByText("还没有 index.html")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expectNoClip(page);
     await page.screenshot({ path: `node_modules/.cache/tools-blank-${width}.png` });
   });
 }

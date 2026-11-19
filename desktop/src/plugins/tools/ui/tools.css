@@ -238,7 +238,9 @@
 /* ── 开发工具表单（一行输入，不占首屏）───────────────────────────────── */
 .aaw-tools .build-new { border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-surface); padding: 12px 14px; }
 .aaw-tools .build-new-label { display: block; font-size: 13px; font-weight: 600; color: var(--color-ink); margin-bottom: 8px; }
-.aaw-tools .build-new textarea { width: 100%; resize: vertical; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-base); color: var(--color-ink); font: inherit; font-size: 13px; line-height: 1.6; }
+/* 需求框：窄栏里同一句话要折成更多行，固定 3 行会把最后一行切成半截。
+   `field-sizing: content` 让高度跟着内容长，到 40vh 封顶再滚动。 */
+.aaw-tools .build-new textarea { width: 100%; resize: vertical; field-sizing: content; min-height: calc(3 * 1.6em + 20px); max-height: 40vh; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-base); color: var(--color-ink); font: inherit; font-size: 13px; line-height: 1.6; }
 .aaw-tools .build-new textarea:focus { outline: none; border-color: var(--color-info); }
 .aaw-tools .build-new-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
 .aaw-tools .build-new-row button { min-height: 30px; padding: 5px 12px; border-radius: 7px; font-size: 12px; }
@@ -289,7 +291,16 @@
 .aaw-tools .build-violations li.is-block strong { color: var(--color-danger-ink); }
 
 /* ── 工具项目列表 ─────────────────────────────────────────────────────── */
-.aaw-tools .build-projects { display: grid; gap: 8px; }
+/*
+ * minmax(0, 1fr) 不是装饰。
+ *
+ * grid 的隐式 auto 轨道下限是 min-content，而这一行里有个 nowrap 的路径胶囊
+ * （源码位置 + 完整路径）：它的 min-content 约 270px，于是轨道被顶宽，右栏
+ * 收到 300px（content 272）时整行比列表还宽 44px —— 右侧的「可以验收」徽标、
+ * 「还没有 index.html」、「可以」全被裁掉，卡片看起来没有跟着窗口收缩。
+ * 把轨道下限归零，再由内部的 min-width: 0 + 省略号决定怎么让位。
+ */
+.aaw-tools .build-projects { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .aaw-tools .build-projects-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px; font-size: 11px; color: var(--color-ink-subtle); }
 /* 窄栏（360px）下这里曾经被折成「1 个项 / 目」「自定义目 / 录」：
    第一行固定放计数与按钮，根目录单独占第二行——比把按钮甩到下一行更像
@@ -299,11 +310,11 @@
 .aaw-tools .build-root-actions button { white-space: nowrap; }
 .aaw-tools .build-projects-head .tool-path { order: 3; flex: 1 1 100%; min-width: 0; max-width: 420px; }
 .aaw-tools .tools-guide { margin-left: auto; }
-.aaw-tools .build-project { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-surface); }
+.aaw-tools .build-project { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-surface); }
 .aaw-tools .build-project-main { min-width: 0; flex: 1 1 220px; }
 .aaw-tools .build-project-main strong { font-size: 13px; font-weight: 600; color: var(--color-ink); }
 .aaw-tools .build-project-main span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .build-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.aaw-tools .build-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .aaw-tools .build-project-actions button { min-height: 28px; padding: 4px 10px; font-size: 12px; border-radius: 7px; }
 /* 展开中的行：边框加重一点，说明"这一行是当前在处理的"。 */
 .aaw-tools .build-project.is-open { border-color: var(--color-line-strong); }
@@ -311,10 +322,13 @@
 .aaw-tools .build-project-toggle .build-project-chevron { margin-left: 0; }
 .aaw-tools .build-project-chevron { flex: none; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; opacity: .5; transition: transform .15s ease; }
 .aaw-tools .build-project.is-open .build-project-chevron { transform: rotate(90deg); opacity: .8; }
-.aaw-tools .build-project-body { flex: 1 1 100%; min-width: 0; display: grid; gap: 2px; margin-top: 6px; }
-.aaw-tools .build-project-footer { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.aaw-tools .build-detail-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-/* 状态徽标要和路径同一行：给路径留出上限，别把它挤到下一行孤零零悬着。 */
+/* 展开区里的 grid 同样要把轨道下限归零，否则路径胶囊会把整块顶宽。 */
+.aaw-tools .build-project-body { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin-top: 6px; }
+.aaw-tools .build-project-footer { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin-top: 2px; }
+.aaw-tools .build-detail-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+/* 状态徽标要和路径同一行：给路径留出上限，别把它挤到下一行孤零零悬着。
+   上限之外还得能收缩（flex-shrink 1 + min-width 0），否则 300px 右栏里
+   徽标会被挤出行外。 */
 .aaw-tools .build-detail-head .tool-path { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 92px); }
 /* 提示条自带关闭：一条不再成立的提示不该等下一个人来覆盖它。 */
 .aaw-tools .build-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 7px 10px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-base); font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
