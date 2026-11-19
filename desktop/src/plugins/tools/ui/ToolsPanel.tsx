@@ -11,7 +11,7 @@ import type { ProjectService } from "../../project/service.ts";
 import { exampleTools } from "../runtime/examples.ts";
 import { exportToolProject, readToolUpload } from "../runtime/projectArchive.ts";
 import { readToolDirFiles } from "../runtime/project.ts";
-import { ActiveProjectCard, NewToolForm } from "./ToolBuilder.tsx";
+import { NewToolForm } from "./ToolBuilder.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
 import { ToolPreview } from "./ToolPreview.tsx";
 import { ToolProjectList } from "./ToolProjects.tsx";
@@ -295,16 +295,6 @@ export function ToolsPanel({ service, host, project, workshop, visible: panelVis
     setView({ kind: "preview", tool, from: tab });
   }
 
-  async function installProject(dir: string) {
-    await workshop.select(dir);
-    if (await workshop.install()) {
-      const check = workshop.state.getState().check;
-      setFeedback({ text: check?.tool ? describeInstall({ version: check.tool.version, updated: true, versionChanged: true }, check.tool.name) : "已安装。" });
-    } else {
-      setFeedback({ text: workshop.state.getState().note?.text ?? "安装失败。", error: true });
-    }
-  }
-
   /**
    * 卡片上只留一个主操作（打开），其余收进「⋯」：之前 5 个按钮平铺，扫视
    * 成本高，而且「卸载」和「导出」的视觉权重完全一样。
@@ -400,22 +390,11 @@ export function ToolsPanel({ service, host, project, workshop, visible: panelVis
 
         {tab === "projects" && <>
           <NewToolForm workshop={workshop} available={host.isNative()} />
-          <ActiveProjectCard workshop={workshop} onPreview={() => {
-            const state = workshop.state.getState();
-            const tool = state.check?.tool;
-            if (!tool) return;
-            if (onPreviewProject && state.project) {
-              onPreviewProject(state.project.dir, state.project.name);
-              return;
-            }
-            setView({ kind: "preview", tool, from: tab });
-          }} />
           <ToolProjectList
             workshop={workshop}
             installed={tools}
             available={host.isNative()}
             onPreview={(dir) => void previewProject(dir)}
-            onInstall={(dir) => void installProject(dir)}
           />
         </>}
 

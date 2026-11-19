@@ -73,9 +73,11 @@ function harness(options: { native?: boolean; settings?: { read: () => string | 
   const send = vi.fn();
   const startNewSession = vi.fn();
   const pickDirectory = vi.fn();
+  // 前台工作区单独持有：测试要能模拟"用户切到了别的项目"。
+  const workspace = createStore<{ activePath: string | null }>(() => ({ activePath: dir }));
   const project = {
     projects: {
-      workspace: createStore(() => ({ activePath: dir })),
+      workspace,
       setRecentExclusions: vi.fn(),
       registerProject: vi.fn(),
       pickDirectory,
@@ -88,7 +90,7 @@ function harness(options: { native?: boolean; settings?: { read: () => string | 
   } as unknown as ProjectService;
 
   const workshop = createWorkshop({ tools, project, host, owner: () => "u1", ...(options.settings ? { settings: options.settings } : {}) });
-  return { workshop, io, dir, send, openInFileManager, session, setSource, project, startNewSession, pickDirectory, tools, toolStore, host, toolPurge };
+  return { workshop, io, dir, send, openInFileManager, session, setSource, project, startNewSession, pickDirectory, tools, toolStore, host, toolPurge, workspace };
 }
 
 /** 让 AI 停下来：工坊的回调是订阅里发的，不等它跑完就断言会读到旧状态。 */
@@ -389,4 +391,85 @@ it("purges the project under a custom root too", async () => {
   await io.writeTextFile("/data/custom/demo/index.html", "<p>hi</p>");
   await workshop.purge("demo");
   expect(toolPurge).toHaveBeenCalledWith(expect.objectContaining({ projectDirs: ["/data/custom/demo"] }));
+});
+
+/**
+ * 收起不是删除：状态清空，但目录一个文件都不能动。
+ *
+ * 以前「当前项目」只有入口没有出口（select 能设、界面上关不掉），于是它是
+ * 一个只进不出的状态——目录被删掉之后卡片还能一直挂着。
+ */
+it("collapses the tracked project without touching the disk", async () => {
+  const { workshop, io, dir } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await workshop.select(dir);
+  expect(workshop.state.getState().project?.dir).toBe(dir);
+
+  workshop.dismiss();
+  expect(workshop.state.getState().project).toBeNull();
+  expect(workshop.state.getState().check).toBeNull();
+  expect(await io.pathExists(`${dir}/manifest.json`)).toBe(true);
+});
+
+/**
+ * 目录被外部删掉之后再点「重新校验」：不能只报一句错然后原地不动。
+ *
+ * 用户实测的僵尸卡片就是这么来的——报错写进 note，project 仍在，
+ * 卡片于是永远挂在那里，没有任何出口。
+ */
+it("drops the project when its directory disappears", async () => {
+  const { workshop, io, dir } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await io.writeTextFile(`${dir}/index.html`, "<p>hi</p>");
+  await workshop.select(dir);
+
+  io.files.delete(`${dir}/manifest.json`);
+  io.files.delete(`${dir}/index.html`);
+  await workshop.verify();
+
+  const state = workshop.state.getState();
+  expect(state.project).toBeNull();
+  expect(state.missing).toBe(false);
+  expect(state.note?.text).toContain("目录已经不在了");
+});
+
+/** AI 写完那一刻目录也没了：同样收敛成"移除 + 说明"，而不是"没修好"。 */
+it("does not report a deleted project as unfixed work", async () => {
+  const { workshop, io, dir, session } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await workshop.select(dir);
+  io.files.delete(`${dir}/manifest.json`);
+
+  stopAgent(session);
+  await vi.waitFor(() => expect(workshop.state.getState().project).toBeNull());
+  expect(workshop.state.getState().stalled).toBe(false);
+  expect(workshop.state.getState().note?.text).toContain("目录已经不在了");
+});
+
+/**
+ * 「正在写」只属于前台会话所在的项目。
+ *
+ * 以前只看 isAgentRunning：在 A 里等 B 的结果时，A 那张卡片也会显示
+ * 「AI 正在写…」，用户以为 AI 在处理 A。
+ */
+it("reports running only for the project the foreground session is on", async () => {
+  const { workshop, io, dir, session, workspace } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await workshop.select(dir);
+  session.setState({ isAgentRunning: true });
+  expect(workshop.state.getState().running).toBe(true);
+
+  // 前台切到别的项目：这个项目不该继续转圈。
+  workspace.setState({ activePath: "/data/other" });
+  session.setState({ isAgentRunning: false });
+  session.setState({ isAgentRunning: true });
+  expect(workshop.state.getState().running).toBe(false);
 });

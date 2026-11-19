@@ -153,3 +153,25 @@ for (const width of [360, 740]) {
     await page.screenshot({ path: `node_modules/.cache/tools-stalled-list-${width}.png` });
   });
 }
+
+for (const width of [360, 740]) {
+  test(`one row per project, only the open one expands at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 760 });
+    await page.goto("/tests/visual/toolsFixture.html?projects");
+    await page.getByRole("button", { name: /开发工具/ }).click();
+
+    const rows = page.getByRole("list", { name: "工具项目" }).getByRole("listitem");
+    await expect(rows).toHaveCount(3);
+    // 展开的内容只属于一行：源码路径出现一次；另外两行是收起的。
+    await expect(page.getByText("源码位置")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "接口 JSON 转表格" })).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("button", { name: "Markdown 导出" })).toHaveAttribute("aria-expanded", "false");
+    // 窄栏不能因为"多一个展开块"撑出横向滚动条。
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `node_modules/.cache/tools-projects-${width}.png` });
+    // 再点一次标题就收起：这是僵尸卡片缺的那条出口。
+    await page.getByRole("button", { name: "接口 JSON 转表格" }).click();
+    await expect(page.getByText("源码位置")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "接口 JSON 转表格" })).toHaveAttribute("aria-expanded", "false");
+  });
+}

@@ -8,7 +8,6 @@ import type { WorkshopService, WorkshopSnapshot } from "../../../src/plugins/too
 export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): WorkshopService {
   const store = createStore<WorkshopSnapshot>(() => ({
     brief: "",
-    parent: null,
     project: null,
     check: null,
     note: null,
@@ -18,6 +17,7 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
     stalled: false,
     repairs: 0,
     running: false,
+    missing: false,
     projects: [],
     projectsLoading: false,
     projectsRoot: "E:/AAW/tools/projects",
@@ -28,8 +28,8 @@ export function fakeWorkshop(overrides: Partial<WorkshopSnapshot> = {}): Worksho
   return {
     state: store,
     setBrief: (value) => store.setState({ brief: value }),
-    chooseParent: idle,
-    resetParent: () => {},
+    dismiss: () => store.setState({ project: null, check: null }),
+    clearNote: () => store.setState({ note: null }),
     create: idle,
     verify: () => Promise.resolve(null),
     install: () => Promise.resolve(false),

@@ -124,6 +124,8 @@ it("shows the source path and re-checking once AI gave up", () => {
   const workshop = {
     ...fakeWorkshop({
       project: { dir: "E:/tools/demo", id: "demo", name: "演示" },
+      // 展开的内容长在它那一行里：列表里得有这个项目，否则没有"行"可展开。
+      projects: [{ dir: "E:/tools/demo", dirName: "demo", id: "demo", name: "演示", version: "1.0.0", hasHtml: true, network: false }],
       stalled: true,
       note: { text: "还有 2 个问题，AI 试了 3 轮也没修好。", error: true },
     }),
@@ -224,4 +226,44 @@ it("refreshes the project list whenever the panel becomes visible again", () => 
   expect(refreshProjects).not.toHaveBeenCalled();
   panel.rerender(<ToolsPanel service={service} host={host} workshop={workshop} visible />);
   expect(refreshProjects).toHaveBeenCalledOnce();
+});
+
+/**
+ * 一个项目只占一行：展开的内容长在它自己的行里，不再是另一张浮动卡片。
+ *
+ * 点开 = 处理这个项目；再点一次 = 收起。没有第三条"关不掉"的路径。
+ */
+it("keeps one row per project and expands only the open one", () => {
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  const select = vi.fn(() => Promise.resolve());
+  const dismiss = vi.fn();
+  const workshop = {
+    ...fakeWorkshop({
+      project: { dir: "E:/tools/a", id: "a", name: "甲" },
+      check: { ready: true, blocking: [], warnings: [], tool: sampleTool },
+      projects: [
+        { dir: "E:/tools/a", dirName: "a", id: "a", name: "甲", version: "1.0.0", hasHtml: true, network: false },
+        { dir: "E:/tools/b", dirName: "b", id: "b", name: "乙", version: "0.2.0", hasHtml: true, network: false },
+      ],
+    }),
+    select,
+    dismiss,
+  } as never;
+
+  render(<ToolsPanel service={service} host={host} workshop={workshop} />);
+  fireEvent.click(screen.getByRole("button", { name: /开发工具/ }));
+
+  // 两行各一个；展开的只有「甲」——「源码位置」只在展开内容里出现一次。
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  expect(screen.getAllByText("源码位置")).toHaveLength(1);
+  // 「乙」是收起态：动作只有最常做的两个。
+  const rowB = screen.getByRole("button", { name: "乙" });
+  expect(rowB).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(rowB);
+  expect(select).toHaveBeenCalledWith("E:/tools/b");
+  fireEvent.click(screen.getByRole("button", { name: "甲" }));
+  expect(dismiss).toHaveBeenCalledOnce();
 });

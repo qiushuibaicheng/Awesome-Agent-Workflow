@@ -49,7 +49,12 @@ export interface WorkshopProject {
 
 export interface WorkshopSnapshot {
   readonly brief: string;
-  readonly parent: string | null;
+  /**
+   * 展开中的项目。同一时刻最多一个（列表是手风琴）。
+   *
+   * 它同时是「AI 停下就校验」的跟踪目标：展开 = 我在盯这个项目。收起
+   * 就等于放弃跟踪，所以收起之后 AI 写完不会再自动回灌。
+   */
   readonly project: WorkshopProject | null;
   readonly check: ToolProjectCheck | null;
   readonly note: WorkshopNote | null;
@@ -71,8 +76,20 @@ export interface WorkshopSnapshot {
    */
   readonly stalled: boolean;
   readonly repairs: number;
-  /** 前台会话里 AI 是否正在写；面板据此显示"正在写…"。 */
+  /**
+   * 前台会话里 AI 是否正在写**这个项目**。
+   *
+   * 以前只看「有没有 AI 在跑」，于是别的项目在跑时，当前项目也会挂上
+   * 「AI 正在写…」——用户在 A 里等 B 的结果，看到的却是 A 在转。
+   */
   readonly running: boolean;
+  /**
+   * 项目目录已经不在磁盘上（被移动、改名或删除）。
+   *
+   * 这不是「内容有问题」——重新校验永远不会成功。界面上必须把它和违规
+   * 分开：给「从列表移除」，而不是给一个注定失败的「重新校验」。
+   */
+  readonly missing: boolean;
   readonly projects: readonly ToolProjectSummary[];
   readonly projectsLoading: boolean;
   /** 默认项目根目录（AAW 数据目录 / tools / projects），只用于展示。 */
@@ -89,8 +106,10 @@ export interface WorkshopSnapshot {
 export interface WorkshopService {
   readonly state: ReadonlySnapshot<WorkshopSnapshot>;
   setBrief(value: string): void;
-  chooseParent(): Promise<void>;
-  resetParent(): void;
+  /** 收起当前项目（不删目录、不删工具）：列表回到全收起。 */
+  dismiss(): void;
+  /** 关掉状态栏那条提示，不必等它被下一次操作覆盖。 */
+  clearNote(): void;
   /** 建项目 → 注册工作区 → 开会话 → 发首条消息。 */
   create(): Promise<void>;
   verify(dir?: string): Promise<ToolProjectCheck | null>;
@@ -215,10 +234,11 @@ export function createWorkshop(deps: {
   let resuming = false;
   /** 列表刷新的代际：并发时只认最后一次，避免旧结果覆盖新结果。 */
   let refreshToken = 0;
+  /** 每个项目最近一次被操作的时刻，用于列表排序（不落盘：重启后回归扫描顺序）。 */
+  const touchedAt = new Map<string, number>();
 
   const store = createStore<WorkshopSnapshot>(() => ({
     brief: "",
-    parent: null,
     project: null,
     check: null,
     note: null,
@@ -228,6 +248,7 @@ export function createWorkshop(deps: {
     stalled: false,
     repairs: 0,
     running: false,
+    missing: false,
     projects: [],
     projectsLoading: false,
     projectsRoot: null,
@@ -262,8 +283,24 @@ export function createWorkshop(deps: {
     // 写进状态会让卡片拿着 A 的校验结论去描述 B（比如给一个坏项目标"可以验收"）。
     const current = store.getState().project?.dir;
     if (current && pathKey(current) !== pathKey(dir)) return result;
-    patch({ check: result, ...syncWithInstalled(result.tool) });
+    // 读不出清单时再分一次型：目录整个没了是环境问题（已失效，重试永远不会好），
+    // 目录还在但清单不合法才是内容问题（AI 能改）。两者给的出路完全不同。
+    const alive = result.tool !== undefined || await io.pathExists(joinPath(dir, toolProjectFileNames.manifest));
+    patch({ check: result, missing: !alive, ...syncWithInstalled(result.tool) });
     return result;
+  }
+
+  /**
+   * 目录真的不存在了：收起并说明，不留一张点不动的卡片。
+   *
+   * 这是「僵尸卡片」的根治法：状态不再靠用户点关闭才退，而是由磁盘真相
+   * 反过来推翻——列表里没有它、磁盘上也没有它，就没有任何理由继续显示它。
+   */
+  function dropMissingProject(name: string): void {
+    patch({
+      project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0, missing: false,
+      note: { text: `「${name}」的目录已经不在了（被移动或删除），已从工作台移除。源码如果只是换了位置，把目录放回根目录再刷新列表即可。` },
+    });
   }
 
   /** 把校验问题回灌给会话；返回是否真的发出去了。 */
@@ -287,6 +324,12 @@ export function createWorkshop(deps: {
       result = await readCheck(dir);
     } catch (error) {
       patch({ note: { text: errorText(error), error: true } });
+      return;
+    }
+    // 目录在 AI 改代码的过程中被删/移了：不是"没修好"，是没东西可修。
+    if (store.getState().missing) {
+      const name = store.getState().project?.name ?? dir;
+      dropMissingProject(name);
       return;
     }
     if (result.ready) {
@@ -328,7 +371,10 @@ export function createWorkshop(deps: {
     if (switched) activeSessionId = state.activeSessionId;
     const stopped = running && !state.isAgentRunning && !switched;
     running = state.isAgentRunning;
-    if (state.isAgentRunning !== store.getState().running) patch({ running: state.isAgentRunning });
+    // 「正在写」只算正在写**这个项目**：别的项目在跑时这里不该转圈。
+    const tracked = store.getState().project?.dir;
+    const activeNow = state.isAgentRunning && !!tracked && isForeground(tracked);
+    if (activeNow !== store.getState().running) patch({ running: activeNow });
     if (!stopped) return;
     const dir = store.getState().project?.dir;
     if (!dir) return;
@@ -355,6 +401,17 @@ export function createWorkshop(deps: {
    */
   if (host.isNative()) void syncToolGuide(io).catch(() => { /* 技能目录不可写不影响工具中心：项目里的 AGENTS.md 仍在 */ });
 
+  /**
+   * 最近动过的项目排前面（新建 / 打开 / 安装 / 改名都会 touch）。
+   *
+   * 不做「进行中 / 其他」分组：条目在分组间跳来跳去比多点一次标题更烦。
+   * 稳定排序让没动过的项目保持扫描顺序，列表不会因为无关操作重新排。
+   */
+  function orderProjects(list: readonly ToolProjectSummary[]): readonly ToolProjectSummary[] {
+    return [...list].sort((left, right) =>
+      (touchedAt.get(pathKey(right.dir)) ?? 0) - (touchedAt.get(pathKey(left.dir)) ?? 0));
+  }
+
   async function refreshProjects(): Promise<void> {
     // 并发刷新（选中项目、安装、改名都可能同时触发）：只让最后一次的结果落地，
     // 否则先发的慢扫描会把刚改完名的旧列表又写回来。
@@ -378,7 +435,15 @@ export function createWorkshop(deps: {
         seen.add(key);
         return true;
       });
-      patch({ projects });
+      patch({ projects: orderProjects(projects) });
+      // 列表是磁盘的镜像，所以它同时是"当前项目是否还活着"的判据。
+      // 目录被删/移之后，卡片以前会一直挂着（状态只能进入、不能退出）；
+      // 现在刷新一次就自动收起并说明——不依赖用户去点任何按钮。
+      const current = store.getState().project;
+      if (current && !projects.some((entry) => pathKey(entry.dir) === pathKey(current.dir))) {
+        const alive = await io.pathExists(joinPath(current.dir, toolProjectFileNames.manifest));
+        if (!alive && token === refreshToken) dropMissingProject(current.name);
+      }
     } catch (error) {
       if (token === refreshToken) patch({ note: { text: `读取工具项目失败：${errorText(error)}`, error: true } });
     } finally {
@@ -388,12 +453,13 @@ export function createWorkshop(deps: {
 
   async function select(dir: string | null): Promise<void> {
     if (!dir) {
-      patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0 });
+      patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0, missing: false, running: false });
       return;
     }
     // 列表去重用 pathKey，这里也用它比：大小写 / 分隔符差异不该让摘要查不到。
     const key = pathKey(dir);
     const summary = store.getState().projects.find((entry) => pathKey(entry.dir) === key);
+    touchedAt.set(key, Date.now());
     patch({
       project: {
         dir,
@@ -402,18 +468,30 @@ export function createWorkshop(deps: {
       },
       stalled: false,
       repairs: 0,
+      missing: false,
+      // 展开的项目如果不是前台会话所在的那个，就不该显示"正在写"。
+      running: session.getState().isAgentRunning && isForeground(dir),
     });
-      try { await readCheck(dir); }
-      catch (error) { patch({ note: { text: errorText(error), error: true } }); }
-      // 选中后立刻刷新一次列表：目录可能是 AI 刚写完、列表还是旧的。
-      void refreshProjects();
-    }
+    // 展开即置顶：让最近在弄的项目始终在列表第一条，不用满屏找。
+    patch({ projects: orderProjects(store.getState().projects) });
+    try { await readCheck(dir); }
+    catch (error) { patch({ note: { text: errorText(error), error: true } }); }
+    // 选中后立刻刷新一次列表：目录可能是 AI 刚写完、列表还是旧的。
+    void refreshProjects();
+  }
 
   async function verify(dir?: string): Promise<ToolProjectCheck | null> {
     const target = dir ?? store.getState().project?.dir;
     if (!target) return null;
     try {
       const result = await readCheck(target);
+      // 目录没了：这不是"待修复"，重试永远不会成功。直接收起并说明，
+      // 否则用户会一直点一个注定失败的按钮（原来那张关不掉的卡片就是这么来的）。
+      if (store.getState().missing) {
+        dropMissingProject(store.getState().project?.name ?? target);
+        void refreshProjects();
+        return result;
+      }
       // 手动点「重新校验」必须留下结论：否则界面看起来跟点之前一模一样，
       // 用户会怀疑按钮没生效。
       patch(result.ready
@@ -443,6 +521,7 @@ export function createWorkshop(deps: {
     try {
       // 带上来源目录：以后能回答"这个工具是哪个项目装的"，也能比对两边的差异。
       const outcome = tools.install(result.tool, true, current.dir);
+      touchedAt.set(pathKey(current.dir), Date.now());
       patch({ installed: true, drift: false, note: { text: describeInstall(outcome, result.tool.name) } });
       void refreshProjects();
       return true;
@@ -478,12 +557,12 @@ export function createWorkshop(deps: {
   return {
     state: view.snapshot,
     setBrief(value) { patch({ brief: value }); },
-    resetParent() { patch({ parent: null }); },
 
-    async chooseParent() {
-      const path = await project.projects.pickDirectory();
-      if (path) patch({ parent: path });
+    dismiss() {
+      patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0, missing: false, running: false });
     },
+
+    clearNote() { patch({ note: null }); },
 
     async create() {
       const state = store.getState();
@@ -495,12 +574,15 @@ export function createWorkshop(deps: {
         const wanted = toolProjectIdFromBrief(brief);
         const created = await createToolProject(io, {
           id: wanted, name,
-          // 用户这次显式选的目录 > 设置里的自定义根目录 > 默认位置（带账号段）。
-          ...(state.parent ? { parent: state.parent } : customRoot ? { parent: customRoot } : {}),
+          // 目录只有一个来源：设置里的项目根目录（用户可改）。以前还允许单次
+          // 选目录，于是「选的目录」和「根目录」成了两个概念，而列表只扫根目录
+          // ——建在别处的项目做完就从列表里消失了。一个概念、一个入口。
+          ...(customRoot ? { parent: customRoot } : {}),
           owner: deps.owner(),
         });
         // 同名目录已存在时会退到 -2，得让用户知道"不是覆盖，是新建了一份"。
         const renamed = created.id === wanted ? "" : `已有同名项目，这次建成了 ${created.id}。`;
+        touchedAt.set(pathKey(created.dir), Date.now());
         patch({ project: { dir: created.dir, id: created.id, name: created.name } });
         project.projects.registerProject(created.dir);
         const started = await project.sessions.startNewSession(created.dir);
@@ -562,6 +644,8 @@ export function createWorkshop(deps: {
         return { text: "这个项目正开着，会话历史挂在当前路径上——改目录名会让它接不上。先在侧栏换到别的项目再改名；只改显示名不受影响。", error: true };
       try {
         const result = await renameToolProject(io, { dir, ...input });
+        // 改名会换目录：把它当成"刚动过"，排序里留在前面。
+        touchedAt.set(pathKey(result.dir), Date.now());
         if (current?.dir === dir)
           patch({ project: { dir: result.dir, id: result.id, name: result.name } });
         await refreshProjects();
@@ -651,7 +735,7 @@ export function createWorkshop(deps: {
         if (report.removedData) parts.push("已删除工具数据");
         if (report.skippedDirs.length) parts.push(`${report.skippedDirs.length} 个目录没有删除（不在受管目录内，或不是这个工具）`);
         if (store.getState().project && dirs.includes(store.getState().project!.dir))
-          patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0 });
+          patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0, missing: false, running: false });
         void refreshProjects();
         return { text: parts.length ? parts.join("；") + "。" : "没有找到需要清理的文件。" };
       } catch (error) {

@@ -416,7 +416,8 @@ describe.skipIf(process.platform !== "win32")(
         transport.onLine((line) => lines.push(line));
         await waitFor(
           () => (lines.includes("hello-from-shim") ? lines : undefined),
-          5_000,
+          // 经 cmd.exe 拉起：并行负载下光进程启动就可能几秒，别用 5s 去赌。
+          10_000,
           "shim 输出",
         );
         await transport.kill();
@@ -445,7 +446,8 @@ describe.skipIf(process.platform !== "win32")(
         await waitFor(
           () =>
             lines.includes("argument=value with spaces") ? true : undefined,
-          5_000,
+          // 同样经 cmd.exe：并行负载下给进程启动留足余量。
+          10_000,
           "带空格参数",
         );
       } finally {

@@ -281,8 +281,14 @@
 
 /* ── 工具项目列表 ─────────────────────────────────────────────────────── */
 .aaw-tools .build-projects { display: grid; gap: 8px; }
-.aaw-tools .build-projects-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 2px; font-size: 11px; color: var(--color-ink-subtle); }
-.aaw-tools .build-projects-head .tool-path { flex: none; }
+.aaw-tools .build-projects-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px; font-size: 11px; color: var(--color-ink-subtle); }
+/* 窄栏（360px）下这里曾经被折成「1 个项 / 目」「自定义目 / 录」：
+   第一行固定放计数与按钮，根目录单独占第二行——比把按钮甩到下一行更像
+   "一组信息"而不是一段被挤坏的文本。 */
+.aaw-tools .build-projects-head > span:first-child { flex: none; white-space: nowrap; order: 1; }
+.aaw-tools .build-root-actions { display: inline-flex; flex: none; align-items: center; gap: 4px; order: 2; margin-left: auto; }
+.aaw-tools .build-root-actions button { white-space: nowrap; }
+.aaw-tools .build-projects-head .tool-path { order: 3; flex: 1 1 100%; min-width: 0; max-width: 420px; }
 .aaw-tools .tools-guide { margin-left: auto; }
 .aaw-tools .build-project { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-surface); }
 .aaw-tools .build-project-main { min-width: 0; flex: 1 1 220px; }
@@ -290,8 +296,27 @@
 .aaw-tools .build-project-main span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; font-size: 11px; color: var(--color-ink-subtle); }
 .aaw-tools .build-project-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .aaw-tools .build-project-actions button { min-height: 28px; padding: 4px 10px; font-size: 12px; border-radius: 7px; }
-.aaw-tools .build-permission { padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-warning-ink, var(--color-info)) 45%, var(--color-line)); color: var(--color-warning-ink, var(--color-info)); font-style: normal; }
-.aaw-tools .build-missing { padding: 1px 6px; border-radius: 999px; border: 1px solid var(--color-line); font-style: normal; }
+/* 展开中的行：边框加重一点，说明"这一行是当前在处理的"。 */
+.aaw-tools .build-project.is-open { border-color: var(--color-line-strong); }
+.aaw-tools .build-project-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.aaw-tools .build-project-toggle .build-project-chevron { margin-left: 0; }
+.aaw-tools .build-project-chevron { flex: none; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; opacity: .5; transition: transform .15s ease; }
+.aaw-tools .build-project.is-open .build-project-chevron { transform: rotate(90deg); opacity: .8; }
+.aaw-tools .build-project-body { flex: 1 1 100%; min-width: 0; display: grid; gap: 2px; margin-top: 6px; }
+.aaw-tools .build-project-footer { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.aaw-tools .build-detail-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+/* 状态徽标要和路径同一行：给路径留出上限，别把它挤到下一行孤零零悬着。 */
+.aaw-tools .build-detail-head .tool-path { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 92px); }
+/* 提示条自带关闭：一条不再成立的提示不该等下一个人来覆盖它。 */
+.aaw-tools .build-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 7px 10px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-base); font-size: 11px; line-height: 1.6; color: var(--color-ink-subtle); }
+.aaw-tools .build-note.is-error { border-color: color-mix(in srgb, var(--color-danger-ink) 30%, var(--color-line)); color: var(--color-danger-ink); }
+.aaw-tools .build-note > span { flex: 1 1 auto; min-width: 0; }
+.aaw-tools .build-note-close { flex: none; padding: 0 2px; border: 0; background: none; font-size: 14px; line-height: 1; color: inherit; opacity: .55; cursor: pointer; }
+.aaw-tools .build-note-close:hover { opacity: 1; }
+.aaw-tools .build-status.is-missing { border-color: color-mix(in srgb, var(--color-danger-ink) 40%, var(--color-line)); color: var(--color-danger-ink); }
+/* 状态帽是信息不是按钮：带描边的胶囊看起来像可点，扫视时要先分辨一轮。 */
+.aaw-tools .build-permission { padding: 1px 7px; border-radius: 999px; background: var(--color-base); border: 0; color: var(--color-ink-subtle); font-style: normal; }
+.aaw-tools .build-missing { padding: 1px 7px; border-radius: 999px; background: var(--color-base); border: 0; font-style: normal; }
 /* "项目改了但没重装"是长句子，做成胶囊会撑坏一行；给普通文字 + 警示色。 */
 .aaw-tools .build-drift { font-style: normal; color: var(--color-warning-ink, var(--color-info)); }
 /* ── 空状态：不是"什么都没有"的占位符，而是唯一一次讲清价值的机会 ─────── */
