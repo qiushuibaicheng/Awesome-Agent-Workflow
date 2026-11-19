@@ -106,7 +106,7 @@ for (const width of [360, 1100]) {
     await page.goto("/tests/visual/toolsFixture.html?empty");
     await expect(page.getByText("从你的想法开始，做一个自己的工具")).toBeVisible();
     await expect(page.getByRole("button", { name: /开始做工具/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: "导入 ZIP", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "导入工具…", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "载入示例工具", exact: true })).toBeVisible();
     // 主 CTA 明显大于两个备选，且两个备选等高：之前三种按钮各有一套内边距。
     const boxes = await page.evaluate(() => {

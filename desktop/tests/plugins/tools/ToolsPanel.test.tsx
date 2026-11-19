@@ -162,8 +162,30 @@ it("gives the empty library one primary CTA and two equally-sized alternatives",
   expect(container.querySelectorAll(".tools-empty-primary")).toHaveLength(1);
   expect(container.querySelectorAll(".tools-empty-alt")).toHaveLength(2);
   expect(container.querySelector(".tools-empty-examples")).toBeNull();
-  expect(screen.getByRole("button", { name: "导入 ZIP" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "导入工具…" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "载入示例工具" })).toBeTruthy();
+});
+
+/** 导入只有一个入口：点「导入工具」弹菜单选 ZIP 还是文件夹（浏览器无文件夹项）。 */
+it("routes both import kinds through a single menu entry", () => {
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const importFromFolder = vi.fn(() => Promise.resolve({ text: "已导入。" }));
+  const native = { isNative: () => true } as unknown as HostService;
+  const workshop = { ...fakeWorkshop(), importFromFolder } as never;
+  const first = render(<ToolsPanel service={service} host={native} workshop={workshop} />);
+  // 头部不再有两个并排导入按钮：文件夹入口收进菜单。
+  expect(screen.queryByRole("button", { name: "导入文件夹" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "导入工具" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "导入文件夹…" }));
+  expect(importFromFolder).toHaveBeenCalledOnce();
+  first.unmount();
+  // 同一个菜单在浏览器宿主下不提供文件夹项：点了没用的项等于骗人。
+  const web = { isNative: () => false } as unknown as HostService;
+  render(<ToolsPanel service={service} host={web} workshop={workshop} />);
+  fireEvent.click(screen.getByRole("button", { name: "导入工具" }));
+  expect(screen.getByRole("menuitem", { name: "导入 ZIP 包…" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: "导入文件夹…" })).toBeNull();
 });
 
 /** 常驻工具：关窗只是隐藏，所以列表要标明，菜单要留一条真出口。 */

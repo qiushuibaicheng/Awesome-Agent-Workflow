@@ -39,7 +39,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
  * 也没说 AI 会做哪些事，用户站在空页面前不知道该点哪。这里给出三步预期和
  * 一个具体例子，主按钮直接去「开发工具」——不再和页签摆两个同义入口。
  */
-function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void; onImport: () => void; onExamples: () => void }) {
+function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void; onImport: (event: ReactMouseEvent<HTMLButtonElement>) => void; onExamples: () => void }) {
   return <section className="tools-empty" aria-label="还没有工具">
     <div className="tools-empty-hero">
       <span className="tools-empty-glow" aria-hidden="true" />
@@ -55,7 +55,7 @@ function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void
     <div className="tools-empty-actions">
       <button type="button" className={`${btnPrimary} tools-empty-primary`} onClick={onCreate}>开始做工具 <span aria-hidden="true">→</span></button>
       <div className="tools-empty-alts">
-        <button type="button" className={`${btnSecondary} tools-empty-alt`} onClick={onImport}>导入 ZIP</button>
+        <button type="button" className={`${btnSecondary} tools-empty-alt`} onClick={onImport}>导入工具…</button>
         <button type="button" className={`${btnSecondary} tools-empty-alt`} onClick={onExamples}>载入示例工具</button>
       </div>
     </div>
@@ -169,6 +169,21 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     }
   }
 
+  /**
+   * 导入只有一个入口：点「导入工具」弹出选择菜单（ZIP 包 / 文件夹）。
+   * 之前是两个并排按钮——头部多占一格还让人犹豫该点哪个；选择交给菜单，
+   * 按钮只负责说“从这里导入”。文件夹入口仅限本地宿主（浏览器没有目录选择）。
+   */
+  function openImportMenu(event: ReactMouseEvent<HTMLButtonElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    cardMenu.open("import", "导入工具", [
+      { id: "import-zip", label: "导入 ZIP 包…", onSelect: () => picker.current?.click() },
+      ...(host.isNative()
+        ? [{ id: "import-folder", label: "导入文件夹…", disabled: busy, onSelect: () => void importFolder() }]
+        : []),
+    ], { x: rect.right, y: rect.bottom + 4, side: "bottom", align: "end" });
+  }
+
   /** 从本地文件夹导入一个工具目录：与 ZIP 同一条安装链路（校验 → 落盘 → 安装）。 */
   async function importFolder() {
     if (busy) return;
@@ -231,9 +246,9 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
       // 之前写的是"拖回工具中心即可导入"——但拖拽从来没被支持过，用户会照着做然后发现没反应。
-      // 只说真实存在的路径：点「导入工具」选这个文件。
+      // 只说真实存在的路径：点「导入工具」选「导入 ZIP 包」再选中这个文件。
       const skipped = extra.skipped.length ? `（有 ${extra.skipped.length} 个文件超过单包上限，没打进去）` : "";
-      setFeedback({ text: `已导出到 ${destination}${skipped}。要导入时点右上角「导入工具」，选中这个 ZIP 即可。` });
+      setFeedback({ text: `已导出到 ${destination}${skipped}。要导入时点「导入工具」，选「导入 ZIP 包」再选中这个文件即可。` });
     } catch (error) {
       setFeedback({ text: `导出失败：${errorText(error)}`, error: true });
     } finally { setBusy(false); }
@@ -350,8 +365,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
           <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">描述你的需求，AI 做一个能用的小工具</p></div>
           {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
-          {host.isNative() && <button type="button" className={btnSecondary} disabled={busy} onClick={() => void importFolder()}>导入文件夹</button>}
-          <button type="button" className={btnSecondary} onClick={() => picker.current?.click()}>导入工具</button>
+          <button type="button" className={btnSecondary} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === "import"} disabled={busy} onClick={openImportMenu}>导入工具</button>
         </div>
         <div className="tools-tabs mt-4 flex flex-wrap items-center gap-2">
           <button type="button" className={tab === "library" ? btnSecondary : btnGhost} aria-pressed={tab === "library"} onClick={() => setView({ kind: "library" })}>已安装 · {tools.length}</button>
@@ -395,7 +409,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           {tools.length === 0 && (
             <EmptyLibrary
               onCreate={() => setView({ kind: "projects" })}
-              onImport={() => picker.current?.click()}
+              onImport={openImportMenu}
               onExamples={installExamples}
             />
           )}
