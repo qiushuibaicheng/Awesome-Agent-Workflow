@@ -2,6 +2,7 @@ import type { Context } from "cordis";
 import { useStore } from "zustand";
 import { WrenchIcon } from "../../../shared/ui/icons.tsx";
 import { pathKey } from "../../../shared/panelPaths.ts";
+import type { PanelViewProps } from "../../workbench/types.ts";
 import { ToolsPanel } from "./ToolsPanel.tsx";
 import { ToolPreviewTab } from "./ToolPreviewTab.tsx";
 import { createWorkshop } from "./workshop.ts";
@@ -65,29 +66,42 @@ export function apply(ctx: Context): void {
     settingsScope.dispose();
   }, "tools:workshop");
 
-  function ToolsView({ project: panelProject }: { project: string }) {
+  /**
+   * 常驻挂载（keepMounted）+ hidden 切换可见性。
+   *
+   * 面板内部的页签状态（「已安装」/「开发工具」）存在组件 useState 里：
+   * 以前失活即卸载——切到别的 session、开一个预览标签再回来，页签都会
+   * 悄悄重置回「已安装」，用户正在看的开发列表直接消失。和工作流面板
+   * 同一策略：留在 DOM 里只切 hidden，状态就不会丢。
+   */
+  function ToolsView({ visible, project: panelProject }: PanelViewProps) {
     const user = useStore(account.state).currentUser;
     // 换账号后目录与安装记录都换了一层，用 key 让面板重新挂载、重新拉列表。
-    return <ToolsPanel
-      key={user?.id ?? "anonymous"}
-      service={tools}
-      host={host}
-      project={project}
-      workshop={workshop}
-      onPreviewProject={(dir, name) => {
-        // 预览开成右栏的另一个标签：会话留在中间，工具在右边，来回切都不用
-        // 离开当前项目。
-        workbench.panels.getState().openTab(panelProject, {
-          id: previewTabId(dir),
-          kind: previewKind,
-          data: { dir, ...(name ? { name } : {}) },
-        });
-      }}
-    />;
+    return (
+      <section aria-label={visible ? "工具面板" : undefined} hidden={!visible} className="flex h-full min-h-0">
+        <ToolsPanel
+          key={user?.id ?? "anonymous"}
+          service={tools}
+          host={host}
+          project={project}
+          workshop={workshop}
+          onPreviewProject={(dir, name) => {
+            // 预览开成右栏的另一个标签：会话留在中间，工具在右边，来回切都不用
+            // 离开当前项目。
+            workbench.panels.getState().openTab(panelProject, {
+              id: previewTabId(dir),
+              kind: previewKind,
+              data: { dir, ...(name ? { name } : {}) },
+            });
+          }}
+        />
+      </section>
+    );
   }
 
   ctx.effect(() => workbench.register("panels", {
     id: "tools",
+    keepMounted: true,
     launcher: {
       label: "工具",
       description: "打开和管理个人工具",

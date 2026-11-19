@@ -26,7 +26,7 @@ type View =
   | { kind: "library" }
   | { kind: "projects" }
   | { kind: "manage"; id: string }
-  | { kind: "preview"; tool: ToolPackage };
+  | { kind: "preview"; tool: ToolPackage; from: Tab };
 
 type Tab = "library" | "projects";
 
@@ -85,7 +85,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
   const [busy, setBusy] = useState(false);
   const cardMenu = useHeaderMenu();
   const picker = useRef<HTMLInputElement>(null);
-  const active = view.kind === "preview" ? view.tool : undefined;
+  const active = view.kind === "preview" ? view : undefined;
   const managed = view.kind === "manage" ? tools.find(({ package: tool }) => tool.id === view.id) : undefined;
   const tab: Tab = view.kind === "projects" ? "projects" : "library";
   // 列表可能上百条：搜索输入先降级渲染，打字时不会卡在过滤上。
@@ -278,7 +278,9 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
       onPreviewProject(dir, workshop.state.getState().project?.name);
       return;
     }
-    setView({ kind: "preview", tool });
+    // 没有右栏预览时的兑底：整页换成预览。记住从哪个页签进来，
+    // 关掉预览回那里——以前硬编码回「已安装」，正在看的开发列表直接消失。
+    setView({ kind: "preview", tool, from: tab });
   }
 
   async function installProject(dir: string) {
@@ -351,9 +353,9 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
 
   if (active) {
     return <ToolPreview
-      tool={active}
-      onBack={() => setView({ kind: "library" })}
-      onInstall={() => { run(() => installPackage(active)); setView({ kind: "library" }); }}
+      tool={active.tool}
+      onBack={() => setView({ kind: active.from })}
+      onInstall={() => { run(() => installPackage(active.tool)); setView({ kind: "library" }); }}
       installLabel="安装到工具中心"
     />;
   }
@@ -394,7 +396,7 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
               onPreviewProject(state.project.dir, state.project.name);
               return;
             }
-            setView({ kind: "preview", tool });
+            setView({ kind: "preview", tool, from: tab });
           }} />
           <ToolProjectList
             workshop={workshop}
