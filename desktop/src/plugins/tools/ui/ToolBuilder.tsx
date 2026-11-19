@@ -1,5 +1,5 @@
 import { useStore } from "zustand";
-import { btnGhost, btnPrimary, btnSecondary, DangerButton } from "../../../shared/ui/controls.tsx";
+import { btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
 import { CopyButton } from "../../../shared/ui/CopyButton.tsx";
 import { describeViolations } from "../runtime/rules.ts";
 import type { ToolViolation } from "../types.ts";
@@ -135,12 +135,16 @@ export function ProjectDetail({ workshop, onPreview, onResume }: {
         <ViolationList problems={check.blocking} />
         <ViolationList problems={check.warnings} />
       </>}
-      {/* 装进去的是快照：改了项目却没重装，打开工具看到的还是旧版。 */}
+      {/* 装进去的是快照：改了项目却没重装，打开工具看到的还是旧版。
+          这条提示和下面的「更新到这一版」按钮必须成对出现——只说不动手，
+          用户会去别处找按钮。 */}
       {snapshot.drift && (
-        <p className="build-hint">项目里的内容跟已安装的那一版不一样了——点「确认安装」把这一版装进去，否则打开工具看到的还是旧的。</p>
+        <p className="build-hint">项目里的内容跟已安装的那一版不一样了——点「更新到这一版」把内容装进去，否则打开工具看到的还是旧的。</p>
       )}
       <div className="build-active-actions">
-        <button type="button" className={btnPrimary} disabled={snapshot.busy || !check?.tool} onClick={onResume}>继续开发</button>
+        {/* 权重给「确认安装」：这一页存在的意义就是把项目变成能用的工具，
+            打包出货才是主操作；「继续开发」是回到会话里的次级入口。 */}
+        <button type="button" className={btnSecondary} disabled={snapshot.busy || !check?.tool} onClick={onResume}>继续开发</button>
         <button type="button" className={btnSecondary} onClick={onPreview} disabled={!check?.tool}>预览</button>
         {/* 交接块里已经有「我改完了，重新校验」，这里就不再重复一个同名动作。 */}
         {!snapshot.stalled && problems.length > 0 && (
@@ -154,9 +158,13 @@ export function ProjectDetail({ workshop, onPreview, onResume }: {
             getText={() => describeViolations([...check!.blocking, ...check!.warnings])}
           />
         )}
-        {snapshot.installed
-          ? <span className="build-hint">{snapshot.drift ? "已安装（旧版）" : "已安装到工具中心"}</span>
-          : <DangerButton onClick={() => void workshop.install()} disabled={!check?.ready}>确认安装</DangerButton>}
+        {/* 已安装且内容一致 = 这里没有可出货的东西，给个状态说明就够；
+            内容变了（drift）必须还能再装一次，否则提示条指向一个不存在的按钮。 */}
+        {snapshot.installed && !snapshot.drift
+          ? <span className="build-hint">已安装到工具中心</span>
+          : <button type="button" className={btnPrimary} onClick={() => void workshop.install()} disabled={!check?.ready}>
+            {snapshot.drift ? "更新到这一版" : "确认安装"}
+          </button>}
       </div>
     </>}
   </div>;

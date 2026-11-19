@@ -473,3 +473,78 @@ it("reports running only for the project the foreground session is on", async ()
   session.setState({ isAgentRunning: true });
   expect(workshop.state.getState().running).toBe(false);
 });
+
+/**
+ * 切项目时旧结论要跟着走。
+ *
+ * 「还有 3 个问题没解决」是 A 的结论，切到 B 还贴在顶栏上，用户会以为
+ * B 也有 3 个问题——两条状态栏各说一件事，谁都不对。
+ */
+it("drops the previous project's note when switching projects", async () => {
+  const { workshop, io, dir } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+    actions: [{ id: "run", description: "跑", inputSchema: { type: "object", properties: {} } }],
+  }));
+  await io.writeTextFile(`${dir}/index.html`, "<p>没有实现</p>");
+  await workshop.select(dir);
+  await workshop.verify();
+  expect(workshop.state.getState().note).not.toBeNull();
+
+  // 切到一个真实存在的另一个项目：note 属于上一个项目，不该带过来。
+  const other = "/data/tools/projects/u1/other";
+  await io.writeTextFile(`${other}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "other", name: "另一个", version: "1.0.0", html: "",
+  }));
+  await workshop.select(other);
+  expect(workshop.state.getState().project?.dir).toBe(other);
+  expect(workshop.state.getState().note).toBeNull();
+});
+
+/**
+ * 在「已安装」里卸载之后，开发页不能再显示「已安装到工具中心」。
+ *
+ * 这时目录一个字节都没变，没有任何一次读盘会触发重算：徽标会骗人，
+ * 而且「确认安装」按钮只在未安装时出现——用户会以为自己装不回去了。
+ */
+it("re-reads the installed badge when the tool leaves the installed list", async () => {
+  const { workshop, io, dir, toolStore } = harness();
+  const pack = {
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+    actions: [{ id: "run", description: "跑", inputSchema: { type: "object", properties: {} } }],
+  };
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify(pack));
+  await io.writeTextFile(`${dir}/index.html`, "<script>window.aawActions={run:async()=>({ok:true})}</script>");
+  await workshop.select(dir);
+  await workshop.install();
+  expect(workshop.state.getState().installed).toBe(true);
+
+  // 用户从「已安装」页签卸载：注册表变了，磁盘没变。
+  toolStore.setState([], true);
+  expect(workshop.state.getState().installed).toBe(false);
+});
+
+/**
+ * 校验途中切了项目：不能拿新项目的 `missing` 给旧项目判死刑。
+ *
+ * `readCheck` 已经不再把晚到的结果写进状态，但 `verify` 之后还会读一次
+ * 全局的 `missing`——那是刚选中的那个项目的，用它去移除另一个项目，
+ * 用户会看到"B 的目录已经不在了"，而 B 明明好好的。
+ */
+it("does not remove the wrong project when a check finishes after a switch", async () => {
+  const { workshop, io, dir } = harness();
+  const other = "/data/tools/projects/u1/other";
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await workshop.select(dir);
+
+  // B 是个已经失效的项目（目录不在了），它自己是 missing。
+  await workshop.select(other);
+  expect(workshop.state.getState().missing).toBe(true);
+
+  // 这时给 A 点重新校验：读盘期间当前项目仍是 B，结论不该动 B。
+  await workshop.verify(dir);
+  expect(workshop.state.getState().project?.dir).toBe(other);
+  expect(workshop.state.getState().note?.text ?? "").not.toContain("目录已经不在了");
+});

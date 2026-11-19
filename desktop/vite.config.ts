@@ -19,6 +19,16 @@ export default defineConfig(({ mode }) => ({
     globals: true,
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["tests/setup.ts"],
+    /**
+     * 用线程池而不是默认的进程池（forks）。
+     *
+     * 272 个测试文件各起一个 worker，在 20 核机器上默认会同时 fork 十几个
+     * node 进程；Windows 上偶发 "Failed to start forks worker"——那一批文件
+     * **根本没有执行**，汇总里却仍然是 "Test Files 272 passed"，只有末尾多
+     * 3 行 errors。等于"全绿"里悄悄漏了 3 个文件（threads 池跑出来是 275）。
+     * 线程池同样按文件隔离（isolate 默认开），启动成本低得多：全量 112s → 65s。
+     */
+    pool: "threads",
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

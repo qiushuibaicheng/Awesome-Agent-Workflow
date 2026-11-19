@@ -67,6 +67,19 @@ export function apply(ctx: Context): void {
   }, "tools:workshop");
 
   /**
+   * 换账号要连工坊状态一起换。
+   *
+   * `ToolsPanel` 用 `key={user.id}` 重挂了，但工坊是插件级单例：不重置的话，
+   * 新账号进来会看到上一个账号的项目还展开着（含「已安装」结论），点「确认
+   * 安装」就把那个目录里的工具写进新账号的配置——跨账号串数据。
+   */
+  ctx.effect(() => account.state.subscribe((next, previous) => {
+    if ((next.currentUser?.id ?? "") === (previous.currentUser?.id ?? "")) return;
+    workshop.dismiss();
+    void workshop.refreshProjects();
+  }), "tools:account");
+
+  /**
    * 常驻挂载（keepMounted）+ hidden 切换可见性。
    *
    * 面板内部的页签状态（「已安装」/「开发工具」）存在组件 useState 里：

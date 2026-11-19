@@ -381,6 +381,23 @@ export function createWorkshop(deps: {
     void afterAgentStops(dir);
   });
 
+  /**
+   * 安装态跟着「已安装列表」走，而不是只在读盘时算一次。
+   *
+   * 用户可能在「已安装」里把正在开发的工具卸了，或者回退到旧版本：这两种
+   * 情况下项目目录一个字节都没变，没有任何一次读盘会触发重算——展开的项目
+   * 会一直显示「已安装到工具中心」，连「确认安装」都不给，用户以为装不回去。
+   */
+  const unsubscribeTools = tools.state.subscribe(() => {
+    const current = store.getState().project;
+    if (!current) return;
+    const tool = store.getState().check?.tool;
+    patch(tool
+      ? syncWithInstalled(tool)
+      // 清单读不出来时只能回答"装没装"，内容指纹无从比对。
+      : { installed: tools.state.getState().some((entry) => entry.package.id === current.id), drift: false });
+  });
+
   // 工具项目不进侧栏「最近项目」：它们由工具中心自己管。
   void (async () => {
     try {
@@ -466,6 +483,9 @@ export function createWorkshop(deps: {
         id: summary?.id ?? dir.split(/[\\/]/).pop() ?? "tool",
         name: summary?.name ?? summary?.dirName ?? dir,
       },
+      // 提示条属于上一个项目：「还有 3 个问题没解决」「已安装 v1.2」这类话
+      // 跟着项目走，切过去还留着就等于把 A 的结论贴到 B 头上。
+      note: null,
       stalled: false,
       repairs: 0,
       missing: false,
@@ -485,10 +505,14 @@ export function createWorkshop(deps: {
     if (!target) return null;
     try {
       const result = await readCheck(target);
+      // 读盘期间用户切了项目：`missing` 属于现在选中的那个项目，拿它来给
+      // 刚校验的目录判死刑，会把一个好好的项目从工作台里剔掉。
+      const now = store.getState().project;
+      if (!now || pathKey(now.dir) !== pathKey(target)) return result;
       // 目录没了：这不是"待修复"，重试永远不会成功。直接收起并说明，
       // 否则用户会一直点一个注定失败的按钮（原来那张关不掉的卡片就是这么来的）。
       if (store.getState().missing) {
-        dropMissingProject(store.getState().project?.name ?? target);
+        dropMissingProject(now.name);
         void refreshProjects();
         return result;
       }
@@ -507,7 +531,14 @@ export function createWorkshop(deps: {
   async function install(): Promise<boolean> {
     const current = store.getState().project;
     if (!current) return false;
+    // 安装会往"当前账号"的配置里写：读盘期间换了账号，装进去的就是别人账下的
+    // 一份（目录还是上一个账号的）。和切换项目一样，直接取消。
+    const owner = deps.owner();
     const result = await verify(current.dir);
+    if (deps.owner() !== owner) {
+      patch({ note: { text: "账号已切换，这次安装已取消。请在当前账号下重新确认。", error: true } });
+      return false;
+    }
     // 校验期间用户切了项目：这时再装，装的是他刚才点的那个目录，但状态会写到
     // 现在选中的项目上（"已安装"标签跑到别的卡片）。直接取消，让他重新点。
     if (pathKey(store.getState().project?.dir ?? "") !== pathKey(current.dir)) {
@@ -559,7 +590,9 @@ export function createWorkshop(deps: {
     setBrief(value) { patch({ brief: value }); },
 
     dismiss() {
-      patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0, missing: false, running: false });
+      // 收起 = 这个项目退场：校验结论、「已安装 v1.2」这类话都是它的，
+      // 留着只会贴到下一个项目头上。
+      patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0, missing: false, running: false, note: null });
     },
 
     clearNote() { patch({ note: null }); },
@@ -674,8 +707,9 @@ export function createWorkshop(deps: {
           return;
         }
         patch({ busy: true });
+        // select 自己会清掉上一个项目的提示；这里不再补一句 note: null——
+        // 那会连本次读盘的失败原因一起擦掉，用户只看到"没反应"。
         await select(dir);
-        patch({ note: null });
         project.projects.registerProject(dir);
         const started = await project.sessions.startNewSession(dir);
         if (!started.ok) patch({ note: { text: `会话没连上（${started.reason}），可稍后重试。`, error: true } });
@@ -786,6 +820,7 @@ export function createWorkshop(deps: {
 
     dispose() {
       unsubscribe();
+      unsubscribeTools();
       view.dispose();
     },
   };
