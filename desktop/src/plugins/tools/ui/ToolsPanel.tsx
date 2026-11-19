@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useStore } from "zustand";
+import { pathKey } from "../../../shared/panelPaths.ts";
 import { DangerButton, btnGhost, btnPrimary, btnSecondary } from "../../../shared/ui/controls.tsx";
 import { ContextMenu } from "../../../shared/ui/ContextMenu.tsx";
 import type { ContextMenuEntry } from "../../../shared/ui/ContextMenu.tsx";
@@ -10,7 +11,7 @@ import type { HostService } from "../../host/service.ts";
 import type { ProjectService } from "../../project/service.ts";
 import { exampleTools } from "../runtime/examples.ts";
 import { exportToolProject, readToolUpload } from "../runtime/projectArchive.ts";
-import { readToolDirFiles } from "../runtime/project.ts";
+import { readToolDirFiles, checkToolProject } from "../runtime/project.ts";
 import { NewToolForm } from "./ToolBuilder.tsx";
 import { ToolManagement } from "./ToolManagement.tsx";
 import { ToolPreview } from "./ToolPreview.tsx";
@@ -102,6 +103,17 @@ export function ToolsPanel({ service, host, project, workshop, visible: panelVis
   const visible = needle
     ? tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(needle))
     : tools;
+  /**
+   * 页签上的项目数要跟列表里真正的行数一致。
+   *
+   * 刚建好的项目在扫描结果回来之前只存在于快照里，列表会把那一行合成出来
+   * （否则用户会以为刚建的项目没了）。只数 `projects.length` 的话，页签写
+   * 「开发工具 · 2」而列表写着「3 个项目」——两个数字当场打架。
+   */
+  const openDir = workshopState.project ? pathKey(workshopState.project.dir) : "";
+  const scanned = workshopState.projects;
+  const projectCount = scanned.length
+    + (openDir && !scanned.some((entry) => pathKey(entry.dir) === openDir) ? 1 : 0);
 
   // 每次重新可见刷一次项目列表：AI 刚写完的项目要能立刻出现（常驻挂载后
   // 不会再有“重新挂载”这个刷新时机了）。
@@ -279,15 +291,27 @@ export function ToolsPanel({ service, host, project, workshop, visible: panelVis
   }
 
   async function previewProject(dir: string) {
-    // 先校验一次：能读出来才值得开预览（否则预览里只会是一句报错）。
-    await workshop.select(dir);
-    const tool = workshop.state.getState().check?.tool;
+    // 预览不改工作台状态。
+    //
+    // 这里以前先 `workshop.select(dir)`：于是"我就看一眼"会把这个项目展开、
+    // 把用户正在弄的那个收起，列表还按最近操作重排一次——三个变化都不是他
+    // 点的那件事。改成只读一次盘拿工具包，读完就不再碰状态。
+    let tool: ToolPackage | undefined;
+    try {
+      tool = (await checkToolProject(projectIO(host), dir)).tool;
+    } catch (error) {
+      setFeedback({ text: errorText(error), error: true });
+      return;
+    }
     if (!tool) {
-      setFeedback({ text: "这个项目还读不出可预览的工具，先看下面的校验问题。", error: true });
+      // 刚建好的项目清单是合法的、页面内容还空着：这不是"坏了"，是"还没写完"。
+      setFeedback({ text: "这个项目还没有可预览的内容，展开它能看到校验结论；AI 写完后再预览。", error: true });
       return;
     }
     if (onPreviewProject) {
-      onPreviewProject(dir, workshop.state.getState().project?.name);
+      const name = workshop.state.getState().projects
+        .find((entry) => pathKey(entry.dir) === pathKey(dir))?.name;
+      onPreviewProject(dir, name);
       return;
     }
     // 没有右栏预览时的兑底：整页换成预览。记住从哪个页签进来，
@@ -375,7 +399,7 @@ export function ToolsPanel({ service, host, project, workshop, visible: panelVis
           <button type="button" className={tab === "library" ? btnSecondary : btnGhost} aria-pressed={tab === "library"} onClick={() => setView({ kind: "library" })}>已安装 · {tools.length}</button>
           {/* 顶部不再放「新建工具」：它和这个页签是同一个界面，两个入口只会让人
               以为点了会去别的地方。做工具统一从这里进，名字也统一叫「开发工具」。 */}
-          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => { setView({ kind: "projects" }); void workshop.refreshProjects(); }}>开发工具 · {workshopState.projects.length}</button>
+          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => { setView({ kind: "projects" }); void workshop.refreshProjects(); }}>开发工具 · {projectCount}</button>
           {/* 开发指导独立成窗口：内容是全平台通用的规范，不该混在"做某个工具"的流程里。 */}
           <button type="button" className={`${btnGhost} tools-guide`} onClick={() => void openGuide()} disabled={busy}>开发指导 ↗</button>
         </div>

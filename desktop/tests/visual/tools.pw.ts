@@ -175,3 +175,25 @@ for (const width of [360, 740]) {
     await expect(page.getByRole("button", { name: "接口 JSON 转表格" })).toHaveAttribute("aria-expanded", "false");
   });
 }
+
+for (const width of [360, 740]) {
+  test(`a project without a verdict yet stays actionable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 760 });
+    await page.goto("/tests/visual/toolsFixture.html?blank");
+    await page.getByRole("button", { name: /开发工具/ }).click();
+
+    // 结论还没到（check 为 null）：不能因此把整行变成灰按钮。
+    const open = page.locator(".build-project.is-open");
+    await expect(open.getByRole("button", { name: "继续开发", exact: true })).toBeEnabled();
+    await expect(open.getByRole("button", { name: "重新校验", exact: true })).toBeEnabled();
+    // 没通过校验就不该能装：出货按钮必须是禁用态。
+    await expect(open.getByRole("button", { name: "确认安装", exact: true })).toBeDisabled();
+    // 页签上的数字要与列表头一致（合成行也要算进去）。
+    await expect(page.getByRole("button", { name: /开发工具 · 3/ })).toBeVisible();
+    // 还没读盘也不能断言"没有 index.html"——会让用户以为 AI 什么都没写。
+    // （列表里另有一个真的没有 index.html 的项目，所以只看展开的这一行。）
+    await expect(open.getByText("还没有 index.html")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `node_modules/.cache/tools-blank-${width}.png` });
+  });
+}

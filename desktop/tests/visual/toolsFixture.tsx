@@ -88,5 +88,11 @@ const workshop = fakeWorkshop(params.has("stalled") ? {
     blocking: [],
     warnings: [],
   },
+} : params.has("blank") ? {
+  // 刚建好的项目：目录已经写出来了，列表扫描还没回来（所以是合成行），
+  // 结论也还没到。这是最容易变成"一整块灰按钮 + 还没有 index.html"的一刻。
+  project: { dir: jsonTable.dir, id: jsonTable.id, name: jsonTable.name },
+  projects: [...otherProjects],
+  check: null,
 } : {});
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh" }}><ToolsPanel service={service} host={host} workshop={workshop} /></main>);

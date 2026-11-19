@@ -531,20 +531,47 @@ it("re-reads the installed badge when the tool leaves the installed list", async
  * 全局的 `missing`——那是刚选中的那个项目的，用它去移除另一个项目，
  * 用户会看到"B 的目录已经不在了"，而 B 明明好好的。
  */
-it("does not remove the wrong project when a check finishes after a switch", async () => {
+it("does not pour one project's verdict onto another after a switch", async () => {
   const { workshop, io, dir } = harness();
   const other = "/data/tools/projects/u1/other";
   await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
     schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
   }));
+  await io.writeTextFile(`${other}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "other", name: "另一个", version: "1.0.0", html: "",
+  }));
   await workshop.select(dir);
 
-  // B 是个已经失效的项目（目录不在了），它自己是 missing。
+  // 切到 B（它是好的），然后给 A 点重新校验：A 的目录已经不在了。
   await workshop.select(other);
-  expect(workshop.state.getState().missing).toBe(true);
-
-  // 这时给 A 点重新校验：读盘期间当前项目仍是 B，结论不该动 B。
   await workshop.verify(dir);
+
+  // 结论属于 A 那个已经消失的目录，不能改写 B 的状态，也不能在 B 的提示条上
+  // 写「还有 N 个问题」——那是 A 的事。
   expect(workshop.state.getState().project?.dir).toBe(other);
-  expect(workshop.state.getState().note?.text ?? "").not.toContain("目录已经不在了");
+  expect(workshop.state.getState().note).toBeNull();
+  expect(workshop.state.getState().missing).toBe(false);
+});
+
+/**
+ * 建完项目立刻给结论。
+ *
+ * 不读盘的话展开行停在「读取中…」：合成行会误报「还没有 index.html」，
+ * 而三个动作按钮全用 `check` 做 disabled —— 新建出来的项目是一整块死区，
+ * 会话没连上时连长按「继续开发」重试都做不到。
+ */
+it("reads the new project right after creating it", async () => {
+  const { workshop, startNewSession } = harness();
+  startNewSession.mockResolvedValue({ ok: true });
+  workshop.setBrief("把接口返回的 JSON 转成表格");
+
+  await workshop.create();
+
+  const state = workshop.state.getState();
+  expect(state.project).not.toBeNull();
+  // 脚手架只写清单，页面内容留给 AI：所以这一刻读得出"清单合法、html 还是空的"。
+  // 重点是 check 有值——没有它，展开行是一整块灰按钮。
+  expect(state.check).not.toBeNull();
+  expect(state.check?.blocking.some((problem) => problem.where === "html")).toBe(true);
+  expect(state.note?.error).toBeUndefined();
 });

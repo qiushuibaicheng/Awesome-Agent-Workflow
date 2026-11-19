@@ -419,8 +419,10 @@ export function createWorkshop(deps: {
   if (host.isNative()) void syncToolGuide(io).catch(() => { /* 技能目录不可写不影响工具中心：项目里的 AGENTS.md 仍在 */ });
 
   /**
-   * 最近动过的项目排前面（新建 / 打开 / 安装 / 改名都会 touch）。
+   * 最近**动过**的项目排前面（新建 / 安装 / 改名）。
    *
+   * 「展开」不算动过：那是查看，不是修改。排序若跟着展开走，用户点开第 4 行
+   * 的瞬间它就跳到第一行，同一次点击里手指下的东西换了——见 `select()`。
    * 不做「进行中 / 其他」分组：条目在分组间跳来跳去比多点一次标题更烦。
    * 稳定排序让没动过的项目保持扫描顺序，列表不会因为无关操作重新排。
    */
@@ -476,7 +478,6 @@ export function createWorkshop(deps: {
     // 列表去重用 pathKey，这里也用它比：大小写 / 分隔符差异不该让摘要查不到。
     const key = pathKey(dir);
     const summary = store.getState().projects.find((entry) => pathKey(entry.dir) === key);
-    touchedAt.set(key, Date.now());
     patch({
       project: {
         dir,
@@ -492,8 +493,14 @@ export function createWorkshop(deps: {
       // 展开的项目如果不是前台会话所在的那个，就不该显示"正在写"。
       running: session.getState().isAgentRunning && isForeground(dir),
     });
-    // 展开即置顶：让最近在弄的项目始终在列表第一条，不用满屏找。
-    patch({ projects: orderProjects(store.getState().projects) });
+    // 这里**不**碰 `touchedAt`，也不重排列表。
+    //
+    // 「展开即置顶」在点击的那一刻执行，等于把用户刚点的那一行当场搬走：
+    // 手指按下的是第 4 行，松开时那里已经是别的项目，旁边的「预览」也跟着
+    // 移位。展开是"我要看这个"，不是"我改过这个"——排序只认真实的动作
+    // （新建 / 安装 / 改名 / 继续开发）。
+    try { await readCheck(dir); }
+    catch (error) { patch({ note: { text: errorText(error), error: true } }); }
     try { await readCheck(dir); }
     catch (error) { patch({ note: { text: errorText(error), error: true } }); }
     // 选中后立刻刷新一次列表：目录可能是 AI 刚写完、列表还是旧的。
@@ -617,6 +624,14 @@ export function createWorkshop(deps: {
         const renamed = created.id === wanted ? "" : `已有同名项目，这次建成了 ${created.id}。`;
         touchedAt.set(pathKey(created.dir), Date.now());
         patch({ project: { dir: created.dir, id: created.id, name: created.name } });
+        // 建完立刻读一次盘。
+        //
+        // 不读的话，展开行停在「读取中…」：状态徽标拿不到结论，合成行还会误报
+        // 「还没有 index.html」（脚手架明明刚写完），而工具栏三个按钮全用
+        // `check` 做 disabled —— 对新项目来说这是一整块死区。会话没连上时更糟：
+        // 用户想点「继续开发」重试，按钮是灰的。
+        try { await readCheck(created.dir); }
+        catch (error) { patch({ note: { text: errorText(error), error: true } }); }
         project.projects.registerProject(created.dir);
         const started = await project.sessions.startNewSession(created.dir);
         if (!started.ok) {

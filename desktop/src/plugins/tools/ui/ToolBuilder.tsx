@@ -46,7 +46,9 @@ export function NewToolForm({ workshop, available }: {
         placeholder="描述你要的工具：功能、界面、边界都可以写清楚。例如：把接口返回的 JSON 转成表格，还能导出 Markdown"
         onChange={(event) => workshop.setBrief(event.target.value)}
         spellCheck={false}
-        rows={2}
+        // 三行：右栏 360px 时两行连占位提示都放不下，用户看不到自己写的是
+        // 不是被截断了。仍然可以往下拉。
+        rows={3}
         disabled={!available || busy}
       />
       <div className="build-new-row">
@@ -90,7 +92,9 @@ export function ProjectDetail({ workshop, onPreview, onResume }: {
         ? "可以验收"
         : check
           ? "待修复"
-          : "读取中…";
+          // 没读出来要看得出是"失败"还是"还没读"：后者等一会儿就好，
+          // 前者再等也不会变。
+          : snapshot.note?.error ? "读取失败" : "读取中…";
   const statusTone = snapshot.missing
     ? "is-missing"
     : snapshot.running || check?.ready
@@ -131,23 +135,32 @@ export function ProjectDetail({ workshop, onPreview, onResume }: {
           </div>
         </div>
       )}
-      {check && <>
+        {/* AI 正在写的时候不列旧的校验问题：新建项目的第一秒必然报「html 必填」，
+            这时把它摆成红字，用户会以为出错了，其实只是还没写完。 */}
+      {check && !snapshot.running && <>
         <ViolationList problems={check.blocking} />
         <ViolationList problems={check.warnings} />
       </>}
+      {check && snapshot.running && check.blocking.length > 0 && (
+        <p className="build-hint">AI 正在写，写完后会自动校验（现在这 {check.blocking.length} 条是上一轮留下的）。</p>
+      )}
       {/* 装进去的是快照：改了项目却没重装，打开工具看到的还是旧版。
-          这条提示和下面的「更新到这一版」按钮必须成对出现——只说不动手，
-          用户会去别处找按钮。 */}
+          这条提示和下面的按钮必须成对出现——只说不动手，用户会去别处找按钮。 */}
       {snapshot.drift && (
-        <p className="build-hint">项目里的内容跟已安装的那一版不一样了——点「更新到这一版」把内容装进去，否则打开工具看到的还是旧的。</p>
+        <p className="build-hint">{check?.ready
+          ? "项目里的内容跟已安装的那一版不一样了——点「更新到这一版」把内容装进去，否则打开工具看到的还是旧的。"
+          : "项目改过了，但这一版还有必须修的问题——修完再点「更新到这一版」。"}</p>
       )}
       <div className="build-active-actions">
         {/* 权重给「确认安装」：这一页存在的意义就是把项目变成能用的工具，
-            打包出货才是主操作；「继续开发」是回到会话里的次级入口。 */}
-        <button type="button" className={btnSecondary} disabled={snapshot.busy || !check?.tool} onClick={onResume}>继续开发</button>
-        <button type="button" className={btnSecondary} onClick={onPreview} disabled={!check?.tool}>预览</button>
-        {/* 交接块里已经有「我改完了，重新校验」，这里就不再重复一个同名动作。 */}
-        {!snapshot.stalled && problems.length > 0 && (
+            打包出货才是主操作；「继续开发」是回到会话里的次级入口。
+            disabled 不再挂 `check`：清单读不出来的时候，正是要回去让 AI 修
+            的时候——按钮灰掉等于把唯一出口也关上了。 */}
+        <button type="button" className={btnSecondary} disabled={snapshot.busy} onClick={onResume}>继续开发</button>
+        <button type="button" className={btnSecondary} onClick={onPreview} disabled={snapshot.busy}>预览</button>
+        {/* 交接块里已经有「我改完了，重新校验」，这里就不再重复一个同名动作。
+            没有校验结论（还在读 / 读失败）时也要有这一条：否则整块只剩灰按钮。 */}
+        {!snapshot.stalled && (problems.length > 0 || !check) && (
           <button type="button" className={btnSecondary} onClick={() => void workshop.verify()} disabled={snapshot.busy}>重新校验</button>
         )}
         {/* 文案一直说"把问题复制给 AI"，却只有一段不能一键复制的列表——这里补上按钮。 */}

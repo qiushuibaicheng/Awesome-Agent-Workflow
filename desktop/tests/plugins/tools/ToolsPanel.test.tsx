@@ -267,3 +267,34 @@ it("keeps one row per project and expands only the open one", () => {
   fireEvent.click(screen.getByRole("button", { name: "甲" }));
   expect(dismiss).toHaveBeenCalledOnce();
 });
+
+/**
+ * 还没读出结论时，展开行不能是一整块灰按钮。
+ *
+ * 新建项目的那几秒（以及清单读坏的时候）`check` 是 null。三个动作都用它
+ * 做 disabled，于是「继续开发」也点不了——而它恰恰是回去让 AI 修的唯一入口。
+ */
+it("keeps project actions usable before the first check lands", () => {
+  const dir = "E:/tools/brand-new";
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  const verify = vi.fn().mockResolvedValue(null);
+  const workshop = {
+    ...fakeWorkshop({
+      project: { dir, id: "brand-new", name: "新建的工具" },
+      projects: [{ dir, dirName: "brand-new", id: "brand-new", name: "新建的工具", version: "", hasHtml: true, network: false }],
+      check: null,
+    }),
+    verify,
+  };
+  render(<ToolsPanel service={service} host={host} workshop={workshop} />);
+  fireEvent.click(screen.getByRole("button", { name: /开发工具/ }));
+
+  expect(screen.getByRole("button", { name: "继续开发" })).toBeEnabled();
+  // 没有结论时也要有重新读一次的出口，否则只能靠等。
+  fireEvent.click(screen.getByRole("button", { name: "重新校验" }));
+  expect(verify).toHaveBeenCalledOnce();
+  // 还没读盘不能断言"没有 index.html"——那会让用户以为 AI 什么都没写。
+  expect(screen.queryByText("还没有 index.html")).toBeNull();
+});
