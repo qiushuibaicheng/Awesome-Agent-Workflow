@@ -133,6 +133,34 @@ export interface WorkshopService {
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
+/**
+ * 工具的内容指纹：只收影响运行行为的字段。
+ *
+ * `author` / `source` 是描述性元数据，改了不该提示"项目与已安装的不一致"；
+ * 动作、设置、权限、preload 这些改了行为就变了，必须算进去。
+ */
+export function contentSignature(tool: ToolPackage): string {
+  return JSON.stringify({
+    name: tool.name,
+    version: tool.version,
+    icon: tool.icon,
+    html: tool.html,
+    actions: tool.actions ?? null,
+    settingsSchema: tool.settingsSchema ?? null,
+    permissions: tool.permissions ?? null,
+    requires: tool.requires ?? null,
+    needsSelection: tool.needsSelection ?? null,
+    background: tool.background ?? null,
+    preload: tool.preload ?? null,
+    sourceFiles: tool.sourceFiles ?? null,
+  });
+}
+
+/** 两份工具内容是否不同（影响运行行为的部分）。预览与工坊共用同一个口径。 */
+export function toolContentDiffers(left: ToolPackage, right: ToolPackage): boolean {
+  return contentSignature(left) !== contentSignature(right);
+}
+
 /** 文件端口：`runtime/io.ts` 里的人一个实现，这里保留旧名字给面板用。 */
 export const projectIO = hostToolIO;
 
@@ -183,6 +211,10 @@ export function createWorkshop(deps: {
 
   /** 用户自定义的项目根目录：新建/迁移/列表的优先落点，不套账号段。 */
   let customRoot: string | null = deps.settings?.read() ?? null;
+  /** 「继续开发」是否正在开会话：同步标志，挡住连点导致的重复会话。 */
+  let resuming = false;
+  /** 列表刷新的代际：并发时只认最后一次，避免旧结果覆盖新结果。 */
+  let refreshToken = 0;
 
   const store = createStore<WorkshopSnapshot>(() => ({
     brief: "",
@@ -214,18 +246,22 @@ export function createWorkshop(deps: {
    * 校准"装进去的那一份"与"目录里的那一份"。
    *
    * 只比版本号不够——AI 经常改了内容忘了改版本号；只比 html 又漏掉清单里
-   * 动作/设置的改动。两样都比一次，代价是几毫秒的字符串比较。
+   * 动作/设置/权限的改动——用户会看到"已安装"，打开却是旧行为。所以比
+   * 一整份内容指纹：作者、来源这类描述字段除外（它们不影响跑起来的样子）。
    */
   function syncWithInstalled(tool: ToolPackage | undefined): { installed: boolean; drift: boolean } {
     if (!tool) return { installed: false, drift: false };
     const entry = tools.state.getState().find((item) => item.package.id === tool.id);
     if (!entry) return { installed: false, drift: false };
-    const same = entry.package.version === tool.version && entry.package.html === tool.html;
-    return { installed: true, drift: !same };
+    return { installed: true, drift: toolContentDiffers(entry.package, tool) };
   }
 
   async function readCheck(dir: string): Promise<ToolProjectCheck> {
     const result = await checkToolProject(io, dir);
+    // 读盘期间用户可能已经切到别的项目：这时的结果不再属于"当前项目"，
+    // 写进状态会让卡片拿着 A 的校验结论去描述 B（比如给一个坏项目标"可以验收"）。
+    const current = store.getState().project?.dir;
+    if (current && pathKey(current) !== pathKey(dir)) return result;
     patch({ check: result, ...syncWithInstalled(result.tool) });
     return result;
   }
@@ -284,8 +320,13 @@ export function createWorkshop(deps: {
   // AI 停下来就校验。订阅挂在插件层，面板切走/重挂都不影响。
   const session = project.conversation.foreground.session;
   let running = session.getState().isAgentRunning;
+  let activeSessionId = session.getState().activeSessionId;
   const unsubscribe = session.subscribe((state) => {
-    const stopped = running && !state.isAgentRunning;
+    // 切会话（activeSessionId 变了）不是"AI 停了"：以前会把新会话的空闲状态
+    // 当成上一轮结束，去给工坊当前项目做一次莫名其妙的自动校验/回灌。
+    const switched = state.activeSessionId !== activeSessionId;
+    if (switched) activeSessionId = state.activeSessionId;
+    const stopped = running && !state.isAgentRunning && !switched;
     running = state.isAgentRunning;
     if (state.isAgentRunning !== store.getState().running) patch({ running: state.isAgentRunning });
     if (!stopped) return;
@@ -315,6 +356,9 @@ export function createWorkshop(deps: {
   if (host.isNative()) void syncToolGuide(io).catch(() => { /* 技能目录不可写不影响工具中心：项目里的 AGENTS.md 仍在 */ });
 
   async function refreshProjects(): Promise<void> {
+    // 并发刷新（选中项目、安装、改名都可能同时触发）：只让最后一次的结果落地，
+    // 否则先发的慢扫描会把刚改完名的旧列表又写回来。
+    const token = ++refreshToken;
     patch({ projectsLoading: true });
     try {
       // 两个根都扫：自定义根目录里的项目以前是“建完就找不到”——列表只认默认
@@ -326,6 +370,7 @@ export function createWorkshop(deps: {
           ? listToolProjectSummaries(io, { parent: customRoot }).catch(() => [])
           : Promise.resolve([] as readonly ToolProjectSummary[]),
       ]);
+      if (token !== refreshToken) return;
       const seen = new Set<string>();
       const projects = [...defaultProjects, ...customProjects].filter((entry) => {
         const key = pathKey(entry.dir);
@@ -335,9 +380,9 @@ export function createWorkshop(deps: {
       });
       patch({ projects });
     } catch (error) {
-      patch({ note: { text: `读取工具项目失败：${errorText(error)}`, error: true } });
+      if (token === refreshToken) patch({ note: { text: `读取工具项目失败：${errorText(error)}`, error: true } });
     } finally {
-      patch({ projectsLoading: false });
+      if (token === refreshToken) patch({ projectsLoading: false });
     }
   }
 
@@ -346,7 +391,9 @@ export function createWorkshop(deps: {
       patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0 });
       return;
     }
-    const summary = store.getState().projects.find((entry) => entry.dir === dir);
+    // 列表去重用 pathKey，这里也用它比：大小写 / 分隔符差异不该让摘要查不到。
+    const key = pathKey(dir);
+    const summary = store.getState().projects.find((entry) => pathKey(entry.dir) === key);
     patch({
       project: {
         dir,
@@ -356,9 +403,11 @@ export function createWorkshop(deps: {
       stalled: false,
       repairs: 0,
     });
-    try { await readCheck(dir); }
-    catch (error) { patch({ note: { text: errorText(error), error: true } }); }
-  }
+      try { await readCheck(dir); }
+      catch (error) { patch({ note: { text: errorText(error), error: true } }); }
+      // 选中后立刻刷新一次列表：目录可能是 AI 刚写完、列表还是旧的。
+      void refreshProjects();
+    }
 
   async function verify(dir?: string): Promise<ToolProjectCheck | null> {
     const target = dir ?? store.getState().project?.dir;
@@ -381,6 +430,12 @@ export function createWorkshop(deps: {
     const current = store.getState().project;
     if (!current) return false;
     const result = await verify(current.dir);
+    // 校验期间用户切了项目：这时再装，装的是他刚才点的那个目录，但状态会写到
+    // 现在选中的项目上（"已安装"标签跑到别的卡片）。直接取消，让他重新点。
+    if (pathKey(store.getState().project?.dir ?? "") !== pathKey(current.dir)) {
+      patch({ note: { text: "项目已切换，这次安装已取消。回到这个项目再点一次确认安装。", error: true } });
+      return false;
+    }
     if (!result?.ready || !result.tool) {
       patch({ note: { text: "还有必须修的问题，先让 AI 修完再安装。", error: true } });
       return false;
@@ -523,20 +578,28 @@ export function createWorkshop(deps: {
     // 目录不再由工坊打开：路径在 UI 上以文本 + 复制呈现（ToolPath），
     // 不需要 host.files.openInFileManager，也就不需要为它申请 opener 权限。
     async resume(dir) {
-      // 开会话前先确认项目还在：列表可能是旧数据（目录被移动/改名/删了），
-      // 照着旧路径开会话只会让用户面对一个空目录，还以为是自己改错了地方。
-      if (!await io.pathExists(joinPath(dir, toolProjectFileNames.manifest))) {
-        patch({ note: { text: `这个目录里没有 manifest.json：${dir}。项目可能已被移动或删除，先刷新列表确认它还在。`, error: true } });
-        return;
-      }
-      await select(dir);
-      patch({ note: null });
+      // 连点会开两条会话：同一项目开两条既浪费额度，历史也分叉。
+      // 标志位在第一行同步置上——busy 要等文件检查之后才写，中间那段窗口仍会漏。
+      if (resuming) return;
+      resuming = true;
       try {
+        // 开会话前先确认项目还在：列表可能是旧数据（目录被移动/改名/删了），
+        // 照着旧路径开会话只会让用户面对一个空目录，还以为是自己改错了地方。
+        if (!await io.pathExists(joinPath(dir, toolProjectFileNames.manifest))) {
+          patch({ note: { text: `这个目录里没有 manifest.json：${dir}。项目可能已被移动或删除，先刷新列表确认它还在。`, error: true } });
+          return;
+        }
+        patch({ busy: true });
+        await select(dir);
+        patch({ note: null });
         project.projects.registerProject(dir);
         const started = await project.sessions.startNewSession(dir);
         if (!started.ok) patch({ note: { text: `会话没连上（${started.reason}），可稍后重试。`, error: true } });
       } catch (error) {
         patch({ note: { text: errorText(error), error: true } });
+      } finally {
+        patch({ busy: false });
+        resuming = false;
       }
     },
 
@@ -560,7 +623,12 @@ export function createWorkshop(deps: {
 
     async purge(id) {
       const owner = deps.owner() ?? "";
-      const projectDirs = (await listToolProjectSummaries(io, { owner }))
+      // 两个根都扫：自定义根目录下的项目也是这个工具的源码，删工具时不能留下。
+      const [defaultProjects, customProjects] = await Promise.all([
+        listToolProjectSummaries(io, { owner }),
+        customRoot ? listToolProjectSummaries(io, { parent: customRoot }).catch(() => []) : Promise.resolve([]),
+      ]);
+      const projectDirs = [...defaultProjects, ...customProjects]
         .filter((entry) => entry.id === id)
         .map((entry) => entry.dir);
       /**
@@ -583,7 +651,7 @@ export function createWorkshop(deps: {
         if (report.removedData) parts.push("已删除工具数据");
         if (report.skippedDirs.length) parts.push(`${report.skippedDirs.length} 个目录没有删除（不在受管目录内，或不是这个工具）`);
         if (store.getState().project && dirs.includes(store.getState().project!.dir))
-          patch({ project: null, check: null, installed: false });
+          patch({ project: null, check: null, installed: false, drift: false, stalled: false, repairs: 0 });
         void refreshProjects();
         return { text: parts.length ? parts.join("；") + "。" : "没有找到需要清理的文件。" };
       } catch (error) {

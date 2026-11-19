@@ -63,11 +63,19 @@ function EmptyLibrary({ onCreate, onImport, onExamples }: { onCreate: () => void
   </section>;
 }
 
-export function ToolsPanel({ service, host, project, workshop, onPreviewProject }: {
+export function ToolsPanel({ service, host, project, workshop, visible: panelVisible = true, onPreviewProject }: {
   service: ToolsService;
   host: HostService;
   project?: ProjectService;
   workshop: WorkshopService;
+  /**
+   * 面板当前是否可见（右栏常驻挂载后靠它判断“重新露面”）。
+   *
+   * 以前面板失活即卸载，每次回来都会重新挂载并刷一次项目列表；常驻之后
+   * 不再重挂，新项目（AI 刚写完的、外部加的）就再也不会出现在列表里。
+   * 所以刷新时机改成“每次重新可见”。
+   */
+  visible?: boolean;
   /**
    * 在右栏另开一个预览标签（会话留在中间）。
    *
@@ -95,8 +103,11 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
     ? tools.filter(({ package: tool }) => `${tool.name} ${tool.id}`.toLowerCase().includes(needle))
     : tools;
 
-  // 每次进面板刷一次项目列表：AI 刚写完的项目要能立刻出现。
-  useEffect(() => { void workshop.refreshProjects(); }, [workshop]);
+  // 每次重新可见刷一次项目列表：AI 刚写完的项目要能立刻出现（常驻挂载后
+  // 不会再有“重新挂载”这个刷新时机了）。
+  useEffect(() => {
+    if (panelVisible) void workshop.refreshProjects();
+  }, [panelVisible, workshop]);
 
   // 旧版本的工具体存在 configuration 里；首次打开时迁成项目目录（只写不删）。
   // 交给工坊做：落点必须跟项目列表用同一个账号那层，否则迁出来的目录
@@ -176,7 +187,8 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
    */
   function openImportMenu(event: ReactMouseEvent<HTMLButtonElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    cardMenu.open("import", "导入工具", [
+    // 菜单 id 用冒号前缀：工具 id 的合法字符集是 a-z0-9.-，冒号不可能撞车。
+    cardMenu.open(":import", "导入工具", [
       { id: "import-zip", label: "导入 ZIP 包…", onSelect: () => picker.current?.click() },
       ...(host.isNative()
         ? [{ id: "import-folder", label: "导入文件夹…", disabled: busy, onSelect: () => void importFolder() }]
@@ -367,13 +379,13 @@ export function ToolsPanel({ service, host, project, workshop, onPreviewProject 
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><WrenchIcon className="size-5" /></span>
           <div className="tools-title mr-auto"><h2 className="text-ui-xl font-semibold text-ink">工具中心</h2><p className="mt-1 text-ui-sm text-ink-subtle">描述你的需求，AI 做一个能用的小工具</p></div>
           {host.isNative() && <button type="button" className={btnSecondary} onClick={() => void openElectron()}>打开启动器 ↗</button>}
-          <button type="button" className={btnSecondary} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === "import"} disabled={busy} onClick={openImportMenu}>导入工具</button>
+          <button type="button" className={btnSecondary} aria-haspopup="menu" aria-expanded={cardMenu.menu?.id === ":import"} disabled={busy} onClick={openImportMenu}>导入工具</button>
         </div>
         <div className="tools-tabs mt-4 flex flex-wrap items-center gap-2">
           <button type="button" className={tab === "library" ? btnSecondary : btnGhost} aria-pressed={tab === "library"} onClick={() => setView({ kind: "library" })}>已安装 · {tools.length}</button>
           {/* 顶部不再放「新建工具」：它和这个页签是同一个界面，两个入口只会让人
               以为点了会去别的地方。做工具统一从这里进，名字也统一叫「开发工具」。 */}
-          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => setView({ kind: "projects" })}>开发工具 · {workshopState.projects.length}</button>
+          <button type="button" className={tab === "projects" ? btnSecondary : btnGhost} aria-pressed={tab === "projects"} onClick={() => { setView({ kind: "projects" }); void workshop.refreshProjects(); }}>开发工具 · {workshopState.projects.length}</button>
           {/* 开发指导独立成窗口：内容是全平台通用的规范，不该混在"做某个工具"的流程里。 */}
           <button type="button" className={`${btnGhost} tools-guide`} onClick={() => void openGuide()} disabled={busy}>开发指导 ↗</button>
         </div>

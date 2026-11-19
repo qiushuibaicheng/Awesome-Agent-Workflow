@@ -5,6 +5,7 @@ import type { ProjectService } from "../../../src/plugins/project/service.ts";
 import { memoryToolIO } from "../../../src/plugins/tools/runtime/io.ts";
 import { parseToolPackage } from "../../../src/plugins/tools/runtime/package.ts";
 import type { ToolsService } from "../../../src/plugins/tools/service.ts";
+import type { PersonalTool } from "../../../src/plugins/tools/types.ts";
 import { createWorkshop, syncToolGuide } from "../../../src/plugins/tools/ui/workshop.ts";
 
 /**
@@ -28,9 +29,12 @@ function harness(options: { native?: boolean; settings?: { read: () => string | 
     for (const byte of bytes) binary += String.fromCharCode(byte);
     return Promise.resolve(btoa(binary));
   };
+  const toolPurge = vi.fn(() => Promise.resolve({ removedDirs: [], removedData: false, skippedDirs: [] }));
   const host = {
     isNative: () => options.native ?? true,
     skills: {
+      // 卸载清理要走宿主端口：返回一份“什么都没删”的报告就够断言传给它的目录。
+      toolPurge,
       userDataDir: (namespace: string, directory: string) => io.userDataDir(namespace, directory),
       pathExists: (path: string) => io.pathExists(path),
       listDirNames: (path: string) => io.listDirNames(path),
@@ -50,8 +54,9 @@ function harness(options: { native?: boolean; settings?: { read: () => string | 
   } as unknown as HostService;
 
   const setSource = vi.fn();
+  const toolStore = createStore<readonly PersonalTool[]>(() => []);
   const tools = {
-    state: createStore<readonly never[]>(() => []),
+    state: toolStore,
     // 返回真实的 InstallOutcome：installArchive 之后 describeInstall 要读它。
     install: vi.fn((tool: { version: string }) => ({ version: tool.version, updated: false, versionChanged: false })),
     rollback: vi.fn(),
@@ -83,7 +88,7 @@ function harness(options: { native?: boolean; settings?: { read: () => string | 
   } as unknown as ProjectService;
 
   const workshop = createWorkshop({ tools, project, host, owner: () => "u1", ...(options.settings ? { settings: options.settings } : {}) });
-  return { workshop, io, dir, send, openInFileManager, session, setSource, project, startNewSession, pickDirectory };
+  return { workshop, io, dir, send, openInFileManager, session, setSource, project, startNewSession, pickDirectory, tools, toolStore, host, toolPurge };
 }
 
 /** 让 AI 停下来：工坊的回调是订阅里发的，不等它跑完就断言会读到旧状态。 */
@@ -297,4 +302,91 @@ it("folder import fails clearly when there is no manifest", async () => {
   expect(note.error).toBe(true);
   expect(note.text).toContain("manifest.json");
   workshop.dispose();
+});
+
+/**
+ * 校验是异步读盘的：读的过程中用户切到了另一个项目，晚到的结果不能
+ * 盖掉新项目的结论——否则卡片会拿 A 的"可以验收"去描述 B。
+ */
+it("ignores a late check result after the user switched projects", async () => {
+  const { workshop, io, dir } = harness();
+  const other = "/data/tools/projects/u1/other";
+  for (const [path, id] of [[dir, "demo"], [other, "other"]] as const) {
+    await io.writeTextFile(`${path}/manifest.json`, JSON.stringify({
+      schemaVersion: 1, id, name: id, version: "1.0.0", html: "",
+    }));
+    await io.writeTextFile(`${path}/index.html`, "<p>hi</p>");
+  }
+  // 让第一个项目的读取慢下来，确保它的结果一定落在第二个之后。
+  const read = io.readTextFile.bind(io);
+  vi.spyOn(io, "readTextFile").mockImplementation(async (path) => {
+    if (path.startsWith(dir)) await new Promise((done) => setTimeout(done, 20));
+    return read(path);
+  });
+  void workshop.select(dir);
+  await workshop.select(other);
+  await vi.waitFor(() => expect(workshop.state.getState().check?.tool?.id).toBe("other"));
+  await new Promise((done) => setTimeout(done, 40));
+  expect(workshop.state.getState().project?.dir).toBe(other);
+  expect(workshop.state.getState().check?.tool?.id).toBe("other");
+});
+
+/**
+ * 「有改动」必须比内容，不只是版本号与 html：AI 改了动作/设置却没动这两样时，
+ * 用户会看到"已安装"，打开却是旧行为。
+ */
+it("flags drift when only the manifest changed, not the html or version", async () => {
+  const { workshop, io, dir, toolStore } = harness();
+  const manifest = {
+    schemaVersion: 1 as const, id: "demo", name: "演示", version: "1.0.0", html: "",
+    actions: [{ id: "run", description: "跑", inputSchema: { type: "object", properties: {} } }],
+  };
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify(manifest));
+  await io.writeTextFile(`${dir}/index.html`, "<p>hi</p><script>window.aawActions={run:async()=>({ok:true})}</script>");
+  // 装进去的那份只有动作不一样——版本与 html 完全相同。
+  toolStore.setState([{
+    package: { ...manifest, actions: [{ id: "other", description: "另一个", inputSchema: { type: "object", properties: {} } }] },
+  }], true);
+  await workshop.select(dir);
+  expect(workshop.state.getState().installed).toBe(true);
+  expect(workshop.state.getState().drift).toBe(true);
+});
+
+/** 切会话不是「AI 停了」：新会话的空闲状态不该触发自动校验与回灌。 */
+it("does not mistake switching sessions for the agent stopping", async () => {
+  const { workshop, io, dir, session, send } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await workshop.select(dir);
+  session.setState({ isAgentRunning: true });
+  session.setState({ activeSessionId: "s2", isAgentRunning: false });
+  await new Promise((done) => setTimeout(done, 10));
+  expect(send).not.toHaveBeenCalled();
+  expect(workshop.state.getState().note).toBeNull();
+});
+
+/** 连点「继续开发」只开一条会话：同步标志位挡住 await 窗口里的第二次点击。 */
+it("resumes once even if the button is double-clicked", async () => {
+  const { workshop, io, dir, startNewSession } = harness();
+  await io.writeTextFile(`${dir}/manifest.json`, JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  startNewSession.mockResolvedValue({ ok: true });
+  await Promise.all([workshop.resume(dir), workshop.resume(dir)]);
+  expect(startNewSession).toHaveBeenCalledOnce();
+});
+
+/** 自定义根目录下的项目也是这个工具的源码：删除工具时必须一并交给宿主清理。 */
+it("purges the project under a custom root too", async () => {
+  let stored: string | undefined = "/data/custom";
+  const { workshop, io, toolPurge } = harness({
+    settings: { read: () => stored, write: (value) => { stored = value; } },
+  });
+  await io.writeTextFile("/data/custom/demo/manifest.json", JSON.stringify({
+    schemaVersion: 1, id: "demo", name: "演示", version: "1.0.0", html: "",
+  }));
+  await io.writeTextFile("/data/custom/demo/index.html", "<p>hi</p>");
+  await workshop.purge("demo");
+  expect(toolPurge).toHaveBeenCalledWith(expect.objectContaining({ projectDirs: ["/data/custom/demo"] }));
 });

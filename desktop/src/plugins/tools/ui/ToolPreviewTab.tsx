@@ -7,6 +7,7 @@ import type { ToolsService } from "../service.ts";
 import { checkToolProject } from "../runtime/project.ts";
 import type { ToolPackage, ToolViolation } from "../types.ts";
 import { hostToolIO } from "../runtime/io.ts";
+import { toolContentDiffers } from "./workshop.ts";
 import { ToolPreview } from "./ToolPreview.tsx";
 
 type State =
@@ -80,8 +81,12 @@ export function ToolPreviewTab({ dir, host, project, tools, revision = 0 }: {
     if (!project) return;
     const session = project.conversation.foreground.session;
     let running = session.getState().isAgentRunning;
+    let activeId = session.getState().activeSessionId;
     return session.subscribe((next) => {
-      const stopped = running && !next.isAgentRunning;
+      // 切会话不是"停下"：新会话空闲不应该触发重读（会把 iframe 无谓换掉）。
+      const switched = next.activeSessionId !== activeId;
+      if (switched) activeId = next.activeSessionId;
+      const stopped = running && !next.isAgentRunning && !switched;
       running = next.isAgentRunning;
       if (!stopped) return;
       const active = project.projects.workspace.getState().activePath;
@@ -106,7 +111,8 @@ export function ToolPreviewTab({ dir, host, project, tools, revision = 0 }: {
     </div>;
 
   const entry = installed.find((item) => item.package.id === state.tool.id);
-  const stale = !!entry && (entry.package.version !== state.tool.version || entry.package.html !== state.tool.html);
+  // 与工坊同一口径：版本、正文、动作、设置……任何影响行为的变化都算“没装最新”。
+  const stale = !!entry && toolContentDiffers(entry.package, state.tool);
 
   return <div className="flex h-full min-h-0 flex-col">
     {/* 预览看的是磁盘，工具中心看的是快照：不说清楚，用户会以为已经装上了。 */}

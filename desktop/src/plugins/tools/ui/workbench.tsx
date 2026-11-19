@@ -85,6 +85,7 @@ export function apply(ctx: Context): void {
           host={host}
           project={project}
           workshop={workshop}
+          visible={visible}
           onPreviewProject={(dir, name) => {
             // 预览开成右栏的另一个标签：会话留在中间，工具在右边，来回切都不用
             // 离开当前项目。

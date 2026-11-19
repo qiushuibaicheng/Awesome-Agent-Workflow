@@ -25,7 +25,7 @@ export function ToolProjectList({ workshop, installed, available, onPreview, onI
   const snapshot = useStore(workshop.state);
   const [confirming, setConfirming] = useState<string>();
   const [renaming, setRenaming] = useState<{ dir: string; name: string; id: string; note?: string }>();
-  const { projects, projectsLoading, projectsRoot, customRoot } = snapshot;
+  const { projects, projectsLoading, projectsRoot, customRoot, busy } = snapshot;
   const root = customRoot ?? projectsRoot;
   if (projectsLoading && !projects.length)
     return <p className="build-hint">正在读取工具项目…</p>;
@@ -117,11 +117,11 @@ export function ToolProjectList({ workshop, installed, available, onPreview, onI
             void workshop.purge(project.id ?? project.dirName);
           }}>确认删除</DangerButton>
         </div> : <div className="build-project-actions">
-          <button type="button" className={btnPrimary} onClick={() => void workshop.resume(project.dir)}>继续开发</button>
+          <button type="button" className={btnPrimary} disabled={busy} onClick={() => void workshop.resume(project.dir)}>继续开发</button>
           <button type="button" className={btnSecondary} disabled={!selectable} onClick={() => onPreview(project.dir)}>预览</button>
           <button type="button" className={btnSecondary} disabled={!selectable} onClick={() => onInstall(project.dir)}>{entry ? "重新安装" : "安装"}</button>
           <button type="button" className={btnGhost} onClick={() => setRenaming({ dir: project.dir, name, id: project.id ?? project.dirName })}>改名</button>
-          <button type="button" className={btnGhost} onClick={() => { void workshop.select(project.dir); setConfirming(project.dir); }}>删除</button>
+          <button type="button" className={btnGhost} onClick={() => setConfirming(project.dir)}>删除</button>
         </div>}
       </li>;
     })}

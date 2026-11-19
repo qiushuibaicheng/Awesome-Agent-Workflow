@@ -212,3 +212,16 @@ it("does not offer the background stop for tools that never keep running", () =>
   openCardMenu();
   expect(screen.queryByRole("menuitem", { name: "停止后台运行" })).toBeNull();
 });
+
+/** 常驻挂载之后，重新可见是唯一的刷新时机：不然 AI 刚写完的项目永远不露面。 */
+it("refreshes the project list whenever the panel becomes visible again", () => {
+  const state = createStore<readonly PersonalTool[]>(() => []);
+  const service = { state, install: vi.fn(), rollback: vi.fn(), setSource: vi.fn(), open: vi.fn(), remove: vi.fn(), saveSettings: vi.fn() } satisfies ToolsService;
+  const host = { isNative: () => true } as unknown as HostService;
+  const refreshProjects = vi.fn(() => Promise.resolve());
+  const workshop = { ...fakeWorkshop(), refreshProjects };
+  const panel = render(<ToolsPanel service={service} host={host} workshop={workshop} visible={false} />);
+  expect(refreshProjects).not.toHaveBeenCalled();
+  panel.rerender(<ToolsPanel service={service} host={host} workshop={workshop} visible />);
+  expect(refreshProjects).toHaveBeenCalledOnce();
+});
