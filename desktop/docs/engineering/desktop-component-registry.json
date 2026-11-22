@@ -2485,7 +2485,6 @@
   "plugins/diagnostics/ui/ToolsStorageSetting.tsx": {
     "definitions": {
       "布局与操纵": [
-        "LocationRow",
         "ToolsStorageSetting"
       ]
     },
