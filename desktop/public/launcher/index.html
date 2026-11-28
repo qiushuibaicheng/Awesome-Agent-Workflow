@@ -11,6 +11,7 @@
     <title>AAW 启动器</title>
     <link rel="stylesheet" href="launcher.css" />
     <script src="tauri-bridge.js" defer></script>
+    <script src="dock.js" defer></script>
     <script src="launcher.js" defer></script>
   </head>
   <body>
@@ -54,6 +55,10 @@
         </p>
       </section>
     </main>
+    <section id="dock" aria-label="贴边工具栏" hidden>
+      <nav id="dock-items" aria-label="快捷工具"></nav>
+      <p id="dock-caption" aria-hidden="true"></p>
+    </section>
     <section id="settings" aria-label="启动器设置" hidden>
       <div class="section-label">
         <h2>启动器设置</h2>
@@ -73,10 +78,45 @@
             <label class="surface-option">
               <input type="radio" name="surface" value="edge" />
               <span
-                ><strong>快捷键 + 右侧贴边</strong
-                ><small>在屏幕右边缘停留即可唤出</small></span
+                ><strong>快捷键 + 贴边工具栏</strong
+                ><small>在选定的屏幕边缘停留即可唤出</small></span
               >
             </label>
+          </div>
+        </fieldset>
+        <fieldset id="dock-location" hidden>
+          <legend>工具栏位置</legend>
+          <div class="dock-position-settings">
+            <div id="dock-preview" data-side="right">
+              <span aria-hidden="true">屏幕预览</span>
+              <button
+                type="button"
+                id="dock-handle"
+                tabindex="-1"
+                aria-hidden="true"
+                title="拖动工具栏"
+              >
+                •••
+              </button>
+            </div>
+            <div class="dock-position-fields">
+              <label for="dock-side">贴边方向</label>
+              <select id="dock-side">
+                <option value="left">左侧</option>
+                <option value="right" selected>右侧</option>
+                <option value="top">上侧</option>
+                <option value="bottom">下侧</option>
+              </select>
+              <label for="dock-offset">沿边位置</label>
+              <input
+                id="dock-offset"
+                type="range"
+                min="0"
+                max="100"
+                value="50"
+              />
+              <small>可拖动预览里的工具栏</small>
+            </div>
           </div>
         </fieldset>
         <div class="surface-controls">

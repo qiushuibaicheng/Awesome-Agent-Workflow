@@ -16,10 +16,11 @@ let acceleratorDirty = false;
 let surfaceDirty = false;
 let savingSurface = false;
 const surfaces = {
-  center: { rowHeight: 90, focusSearch: true, pinnedFirst: false },
-  edge: { rowHeight: 54, focusSearch: false, pinnedFirst: true },
+  center: { focusSearch: true },
+  edge: { focusSearch: false },
 };
 let surface = surfaces.center;
+let dockSide = "right";
 const openTimeoutMs = 6000;
 const icons = {
   workflow:
@@ -42,7 +43,11 @@ function choose(index) {
   );
 }
 function markBusy(id, busy) {
-  const button = id && buttons.find((item) => item.dataset.id === id);
+  const button =
+    id &&
+    [...(surface === surfaces.edge ? $("dock-items").children : buttons)].find(
+      (item) => item.dataset.id === id,
+    );
   if (!button) return;
   if (busy) button.dataset.busy = "true";
   else delete button.dataset.busy;
@@ -74,6 +79,33 @@ function tile(entry) {
   button.className = "item";
   button.title = entry.description;
   button.dataset.id = entry.id;
+  const label = document.createElement("span");
+  label.className = "item-label";
+  label.textContent = entry.name;
+  button.append(entryMark(entry), label);
+  button.addEventListener("click", () => void open(entry.id));
+  button.addEventListener("focus", () => choose(buttons.indexOf(button)));
+  const pin = document.createElement("button");
+  pin.className = "pin";
+  pin.textContent = entry.pinned ? "★" : "☆";
+  pin.setAttribute(
+    "aria-label",
+    `${entry.pinned ? "取消固定" : "固定"} ${entry.name}`,
+  );
+  pin.setAttribute("aria-pressed", String(entry.pinned));
+  pin.title = entry.pinned ? "取消固定" : "固定到启动器";
+  pin.addEventListener("click", async () => {
+    try {
+      await window.launcher.pin(entry.id, !entry.pinned);
+      await refresh(false);
+    } catch (error) {
+      status(error.message);
+    }
+  });
+  li.append(button, pin);
+  return li;
+}
+function entryMark(entry) {
   const icon = document.createElement("span");
   icon.className = "item-mark";
   icon.dataset.icon = entry.icon;
@@ -87,32 +119,18 @@ function tile(entry) {
     icon.append(glyph);
   } else
     icon.innerHTML = `<svg viewBox="0 0 24 24">${icons[entry.icon] ?? icons.tool}</svg>`;
-  const label = document.createElement("span");
-  label.className = "item-label";
-  label.textContent = entry.name;
-  button.append(icon, label);
-  button.addEventListener("click", () => void open(entry.id));
-  button.addEventListener("focus", () => choose(buttons.indexOf(button)));
-  const pin = document.createElement("button");
-  pin.className = "pin";
-  pin.textContent = entry.pinned ? "★" : "☆";
-  pin.setAttribute(
-    "aria-label",
-    `${entry.pinned ? "取消固定" : "固定"} ${entry.name}`,
-  );
-  pin.setAttribute("aria-pressed", String(entry.pinned));
-  pin.title = entry.pinned ? "取消固定" : "固定到小窗";
-  pin.addEventListener("click", async () => {
-    try {
-      await window.launcher.pin(entry.id, !entry.pinned);
-      await refresh(false);
-    } catch (error) {
-      status(error.message);
-    }
-  });
-  li.append(button, pin);
-  return li;
+  return icon;
 }
+const dock = window.launcherDock.create({
+  root: $("dock"),
+  items: $("dock-items"),
+  caption: $("dock-caption"),
+  makeIcon: entryMark,
+  open,
+  showCenter: () =>
+    window.launcher.showCenter().catch((error) => status(error.message)),
+});
+const rowHeight = 90;
 const labelHeight = 26; // .section-label 高 + 下边距
 function gridColumns() {
   const columns = window
@@ -126,13 +144,14 @@ function visibleRows(columns, pinnedCount) {
   const height = $("content").clientHeight;
   if (!height) return 1; // 首帧或测试环境没有布局信息时退回单行
   const pinnedRows = pinnedCount ? Math.ceil(pinnedCount / columns) : 0;
-  const reserved = labelHeight * 2 + pinnedRows * surface.rowHeight + 16;
-  return Math.max(
-    1,
-    Math.min(3, Math.floor((height - reserved) / surface.rowHeight)),
-  );
+  const reserved = labelHeight * 2 + pinnedRows * rowHeight + 16;
+  return Math.max(1, Math.min(3, Math.floor((height - reserved) / rowHeight)));
 }
 function render() {
+  if (surface === surfaces.edge) {
+    dock.render(entries, dockSide);
+    return;
+  }
   const term = query.value.trim().toLowerCase();
   const searching = Boolean(term) || showAll;
   const matches = entries.filter((entry) =>
@@ -264,20 +283,31 @@ function shortcutState(result) {
   // 正在编辑时不回写：refresh 每次唤起都会调到这里，覆盖就等于抹掉草稿。
   if (!acceleratorDirty) $("accelerator").value = result.shortcut;
 }
-function applySurface(kind) {
+function applySurface(kind, side) {
   const next = kind === "edge" ? "edge" : "center";
+  dockSide = side ?? "right";
   if (document.documentElement.dataset.surface === next) return;
   surface = surfaces[next];
   document.documentElement.dataset.surface = next;
-  const content = $("content");
-  const pinned = $("pinned-section");
-  if (surface.pinnedFirst) content.prepend(pinned);
-  else content.append(pinned);
+  $("dock").hidden = next !== "edge";
   if (!surface.focusSearch && settingsOpen) settings(false, false);
 }
 const surfaceForm = $("surface-form");
 const edgeDelay = $("edge-delay");
 const edgeOption = surfaceForm.elements.namedItem("surface");
+const dockPreview = $("dock-preview");
+const sideInput = $("dock-side");
+const offsetInput = $("dock-offset");
+function updateDockSettings() {
+  const enabled = edgeOption.value === "edge";
+  edgeDelay.disabled = !enabled;
+  $("dock-location").hidden = !enabled;
+  window.launcherDock.updatePicker(
+    dockPreview,
+    sideInput.value,
+    offsetInput.value,
+  );
+}
 function applyEdgePreference(preference) {
   edgeOption.value = preference.enabled ? "edge" : "keyboard";
   const delay = String(preference.delayMs);
@@ -285,16 +315,25 @@ function applyEdgePreference(preference) {
     edgeDelay.add(new window.Option(`${preference.delayMs / 1000} 秒`, delay));
   }
   edgeDelay.value = delay;
-  edgeDelay.disabled = !preference.enabled;
+  sideInput.value = preference.side ?? "right";
+  offsetInput.value = preference.offsetPercent ?? 50;
+  updateDockSettings();
 }
 function surfaceStatus(text) {
   $("surface-status").hidden = !text;
   $("surface-status").textContent = text;
 }
-surfaceForm.addEventListener("change", () => {
+function editSurface() {
   surfaceDirty = true;
-  edgeDelay.disabled = edgeOption.value !== "edge";
+  updateDockSettings();
   surfaceStatus("");
+}
+surfaceForm.addEventListener("change", editSurface);
+offsetInput.addEventListener("input", editSurface);
+window.launcherDock.bindPicker(dockPreview, (side, offset) => {
+  sideInput.value = side;
+  offsetInput.value = offset;
+  editSurface();
 });
 surfaceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -306,6 +345,8 @@ surfaceForm.addEventListener("submit", async (event) => {
     const result = await window.launcher.configureEdge({
       enabled: edgeOption.value === "edge",
       delayMs: Number(edgeDelay.value),
+      side: sideInput.value,
+      offsetPercent: Number(offsetInput.value),
     });
     surfaceDirty = false;
     applyEdgePreference(result.edge);
@@ -326,7 +367,7 @@ async function refresh(reset = true) {
     // 页面不再单发一次 IPC——那会再把 preferences.json 读一遍。
     if (result.theme === "warm" || result.theme === "dark")
       document.documentElement.dataset.theme = result.theme;
-    applySurface(result.surface);
+    applySurface(result.surface, result.edge?.side);
     surfaceForm.hidden = !result.edgeSupported;
     if (result.edge && !surfaceDirty && !savingSurface)
       applyEdgePreference(result.edge);

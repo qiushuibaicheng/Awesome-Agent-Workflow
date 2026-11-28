@@ -5,10 +5,29 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct Preference {
     pub enabled: bool,
     pub delay_ms: u64,
+    pub side: Side,
+    pub offset_percent: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Left,
+    #[default]
+    Right,
+    Top,
+    Bottom,
+}
+
+impl Side {
+    #[cfg(windows)]
+    fn is_horizontal(self) -> bool {
+        matches!(self, Self::Top | Self::Bottom)
+    }
 }
 
 impl Default for Preference {
@@ -16,6 +35,8 @@ impl Default for Preference {
         Self {
             enabled: false,
             delay_ms: 350,
+            side: Side::Right,
+            offset_percent: 50,
         }
     }
 }
@@ -24,6 +45,7 @@ impl Preference {
     pub fn normalized(self) -> Self {
         Self {
             delay_ms: self.delay_ms.clamp(200, 1000),
+            offset_percent: self.offset_percent.min(100),
             ..self
         }
     }
@@ -50,17 +72,48 @@ pub(super) struct Placement {
     pub size: PhysicalSize<u32>,
     work_position: PhysicalPosition<i32>,
     work_size: PhysicalSize<u32>,
+    side: Side,
+    offset_percent: u8,
 }
 
 #[cfg(windows)]
 impl Placement {
     pub fn fit_outer(&self, outer: PhysicalSize<u32>) -> PhysicalPosition<i32> {
-        PhysicalPosition::new(
-            self.work_position.x + self.work_size.width.saturating_sub(outer.width) as i32,
-            self.position.y.min(
-                self.work_position.y + self.work_size.height.saturating_sub(outer.height) as i32,
-            ),
-        )
+        let spare_width = self.work_size.width.saturating_sub(outer.width) as i32;
+        let spare_height = self.work_size.height.saturating_sub(outer.height) as i32;
+        let offset = i32::from(self.offset_percent);
+        let (x, y) = match self.side {
+            Side::Left => (0, spare_height * offset / 100),
+            Side::Right => (spare_width, spare_height * offset / 100),
+            Side::Top => (spare_width * offset / 100, 0),
+            Side::Bottom => (spare_width * offset / 100, spare_height),
+        };
+        PhysicalPosition::new(self.work_position.x + x, self.work_position.y + y)
+    }
+
+    fn hit(&self, x: i32, y: i32, band: i32) -> Option<(i32, i32)> {
+        let origin = self.work_position;
+        let right = origin.x + self.work_size.width as i32;
+        let bottom = origin.y + self.work_size.height as i32;
+        if !contains(origin, self.work_size, x, y) {
+            return None;
+        }
+        let along = if self.side.is_horizontal() {
+            x >= self.position.x && x < self.position.x + self.size.width as i32
+        } else {
+            y >= self.position.y && y < self.position.y + self.size.height as i32
+        };
+        if !along {
+            return None;
+        }
+        // 返回边缘外一点，用于排除相邻屏幕的接缝。
+        match self.side {
+            Side::Left if x < origin.x + band => Some((origin.x - 1, y)),
+            Side::Right if x >= right - band => Some((right, y)),
+            Side::Top if y < origin.y + band => Some((x, origin.y - 1)),
+            Side::Bottom if y >= bottom - band => Some((x, bottom)),
+            _ => None,
+        }
     }
 }
 
@@ -163,28 +216,34 @@ pub(super) fn set_inactive_visibility(
 }
 
 #[cfg(windows)]
-fn placement(monitor: &Monitor, y: i32) -> Placement {
+fn placement(monitor: &Monitor, preference: Preference) -> Placement {
     let area = monitor.work_area();
     let scale = monitor.scale_factor();
-    let width = ((344.0 * scale).round() as u32).min(area.size.width);
-    let height = ((548.0 * scale).round() as u32).min(area.size.height);
-    let left = area.position.x + (area.size.width - width) as i32;
-    let top = (y - height as i32 / 2).clamp(
-        area.position.y,
-        area.position.y + (area.size.height - height) as i32,
+    let (width, height) = if preference.side.is_horizontal() {
+        (572.0, 106.0)
+    } else {
+        (106.0, 572.0)
+    };
+    let size = PhysicalSize::new(
+        ((width * scale).round() as u32).min(area.size.width),
+        ((height * scale).round() as u32).min(area.size.height),
     );
-    Placement {
-        position: PhysicalPosition::new(left, top),
-        size: PhysicalSize::new(width, height),
+    let mut placement = Placement {
+        position: area.position,
+        size,
         work_position: area.position,
         work_size: area.size,
-    }
+        side: preference.side,
+        offset_percent: preference.offset_percent,
+    };
+    placement.position = placement.fit_outer(size);
+    placement
 }
 
 #[cfg(windows)]
-pub(super) async fn watch(app: AppHandle, delay_ms: u64) {
+pub(super) async fn watch(app: AppHandle, preference: Preference) {
     let mut dwell = Dwell::default();
-    let delay = Duration::from_millis(delay_ms);
+    let delay = Duration::from_millis(preference.delay_ms);
     loop {
         tokio::time::sleep(Duration::from_millis(60)).await;
         let state = app.state::<LauncherState>();
@@ -225,15 +284,19 @@ pub(super) async fn watch(app: AppHandle, delay_ms: u64) {
         }
         dwell.left = None;
         let active = current.filter(|(index, monitor)| {
-            let area = monitor.work_area();
-            let right = monitor.position().x + monitor.size().width as i32;
-            let width = (3.0 * monitor.scale_factor()).ceil() as i32;
-            x >= right - width
-                && area.position.x + area.size.width as i32 == right
-                && y >= area.position.y + 16
-                && y < area.position.y + area.size.height as i32 - 16
-                && !monitors.iter().enumerate().any(|(other, neighbor)| {
-                    other != *index && contains(*neighbor.position(), *neighbor.size(), right, y)
+            let band = (3.0 * monitor.scale_factor()).ceil() as i32;
+            placement(monitor, preference)
+                .hit(x, y, band)
+                .is_some_and(|(outside_x, outside_y)| {
+                    !monitors.iter().enumerate().any(|(other, neighbor)| {
+                        other != *index
+                            && contains(
+                                *neighbor.position(),
+                                *neighbor.size(),
+                                outside_x,
+                                outside_y,
+                            )
+                    })
                 })
         });
         let target = active.filter(|(_, monitor)| !foreground_blocks(monitor, true));
@@ -244,7 +307,7 @@ pub(super) async fn watch(app: AppHandle, delay_ms: u64) {
         }
         if dwell.reveal(target.map(|(index, _)| index), now, delay) {
             if let Some((_, monitor)) = target {
-                if let Err(error) = super::reveal_edge(&app, placement(monitor, y)) {
+                if let Err(error) = super::reveal_edge(&app, placement(monitor, preference)) {
                     eprintln!("[aaw-tools] 贴边栏显示失败：{error}");
                 }
             }
@@ -289,10 +352,45 @@ mod tests {
             size: PhysicalSize::new(430, 685),
             work_position: PhysicalPosition::new(-1920, 0),
             work_size: PhysicalSize::new(1920, 1000),
+            side: Side::Right,
+            offset_percent: 100,
         };
         assert_eq!(
             placement.fit_outer(PhysicalSize::new(448, 703)),
             PhysicalPosition::new(-448, 297),
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn anchors_all_four_sides_and_matches_only_the_configured_segment() {
+        for (side, x, y, hit_x, hit_y) in [
+            (Side::Left, 0, 350, 1, 355),
+            (Side::Right, 800, 350, 999, 355),
+            (Side::Top, 400, 0, 405, 1),
+            (Side::Bottom, 400, 700, 405, 899),
+        ] {
+            let mut placement = Placement {
+                position: PhysicalPosition::new(0, 0),
+                size: PhysicalSize::new(200, 200),
+                work_position: PhysicalPosition::new(0, 0),
+                work_size: PhysicalSize::new(1000, 900),
+                side,
+                offset_percent: 50,
+            };
+            placement.position = placement.fit_outer(placement.size);
+            assert_eq!(placement.position, PhysicalPosition::new(x, y));
+            assert!(placement.hit(hit_x, hit_y, 3).is_some());
+            assert!(placement.hit(10, 10, 3).is_none());
+        }
+    }
+
+    #[test]
+    fn reads_previous_settings_as_a_centered_right_dock() {
+        let old: Preference = serde_json::from_str(r#"{"enabled":true,"delayMs":500}"#).unwrap();
+        assert!(old.enabled);
+        assert_eq!(old.delay_ms, 500);
+        assert!(matches!(old.side, Side::Right));
+        assert_eq!(old.offset_percent, 50);
     }
 }

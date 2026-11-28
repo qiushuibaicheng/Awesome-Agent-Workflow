@@ -215,6 +215,7 @@ fn launcher_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)
+            .transparent(true)
             .visible(false)
             .build()
             .map_err(|error| format!("建启动器窗口失败：{error}"))?;
@@ -315,7 +316,7 @@ fn apply_edge_preference(app: &AppHandle, preference: EdgePreference) {
             previous.abort();
         }
         if preference.enabled {
-            *task = Some(tauri::async_runtime::spawn(edge::watch(app.clone(), preference.delay_ms)));
+            *task = Some(tauri::async_runtime::spawn(edge::watch(app.clone(), preference)));
         }
     }
     if !preference.enabled {

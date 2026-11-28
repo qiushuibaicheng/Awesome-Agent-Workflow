@@ -36,6 +36,9 @@
     open: function (id) {
       return invoke("launcher_open", { id: id });
     },
+    showCenter: function () {
+      return invoke("launcher_show");
+    },
     hide: function () {
       return invoke("launcher_hide");
     },
