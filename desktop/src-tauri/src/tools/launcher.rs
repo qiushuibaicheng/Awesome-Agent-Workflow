@@ -48,6 +48,8 @@ pub struct LauncherState {
     #[cfg(windows)]
     edge_enabled: AtomicBool,
     #[cfg(windows)]
+    dock_dragging: AtomicBool,
+    #[cfg(windows)]
     edge_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     presentation_busy: AtomicBool,
 }
@@ -61,6 +63,8 @@ impl Default for LauncherState {
             edge_surface: AtomicBool::new(false),
             #[cfg(windows)]
             edge_enabled: AtomicBool::new(false),
+            #[cfg(windows)]
+            dock_dragging: AtomicBool::new(false),
             #[cfg(windows)]
             edge_task: Mutex::new(None),
             presentation_busy: AtomicBool::new(false),
@@ -79,6 +83,13 @@ impl LauncherState {
 
     fn is_edge_surface(&self) -> bool {
         self.edge_surface.load(Ordering::Acquire)
+    }
+
+    fn is_edge_mode(&self) -> bool {
+        #[cfg(windows)]
+        { self.edge_enabled.load(Ordering::Acquire) }
+        #[cfg(not(windows))]
+        { false }
     }
 
     fn begin_presentation(&self) -> Option<PresentationGuard<'_>> {
@@ -213,6 +224,7 @@ fn launcher_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
             .inner_size(CENTER_WIDTH, CENTER_HEIGHT)
             .resizable(false)
             .decorations(false)
+            .shadow(false)
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
@@ -239,6 +251,11 @@ fn launcher_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
 
 fn refresh(window: &tauri::WebviewWindow) {
     let _ = window.eval("window.__launcherRefresh && window.__launcherRefresh()");
+}
+
+#[cfg(windows)]
+fn dock_entry_count(app: &AppHandle) -> Result<usize, String> {
+    Ok(entries_of(app)?["entries"].as_array().map_or(0, Vec::len))
 }
 
 fn conceal(window: &tauri::WebviewWindow) -> tauri::Result<()> {
@@ -408,17 +425,31 @@ pub fn launcher_shortcut(
     app: AppHandle,
     value: Option<String>,
     edge: Option<EdgePreference>,
+    dock_drag: Option<bool>,
 ) -> Result<Value, String> {
     ensure_launcher(&window)?;
+    if let Some(drag) = dock_drag {
+        if !drag || value.is_some() || edge.is_some() || window.label() != LABEL {
+            return Err("无效的工具栏拖动请求。".into());
+        }
+        #[cfg(windows)]
+        {
+            let state = app.state::<LauncherState>();
+            if !state.is_edge_mode() || !state.is_edge_surface() {
+                return Err("请先唤出贴边工具栏再拖动。".into());
+            }
+            edge::start_drag(app, &window)?;
+            return Ok(Value::Null);
+        }
+        #[cfg(not(windows))]
+        return Err("贴边拖动目前仅在 Windows 上可用。".into());
+    }
     let value = match (value, edge) {
         (Some(value), None) => value,
         (None, Some(preference)) => {
             #[cfg(windows)]
             {
-                let preference = preference.normalized();
-                LauncherStore::new(&store_of(&app)?).set_edge_preference(preference)?;
-                apply_edge_preference(&app, preference);
-                return Ok(json!({ "edge": preference }));
+                return save_edge_mode(&app, preference.normalized());
             }
             #[cfg(not(windows))]
             {
@@ -431,6 +462,9 @@ pub fn launcher_shortcut(
     let next = normalize_shortcut(&value)?;
     let store = store_of(&app)?;
     let state = app.state::<LauncherState>();
+    if state.is_edge_mode() {
+        return Err("切换到快捷键小窗后再设置唤起快捷键。".into());
+    }
     let previous = state.shortcut();
     apply_shortcut(&app, &next)?;
     if let Err(error) = LauncherStore::new(&store).set_shortcut(&next) {
@@ -447,6 +481,37 @@ pub fn launcher_shortcut(
     }
     *state.shortcut.lock().map_err(|error| error.to_string())? = next.clone();
     Ok(json!({ "shortcut": next, "shortcutReady": true }))
+}
+
+#[cfg(windows)]
+fn save_edge_mode(app: &AppHandle, preference: EdgePreference) -> Result<Value, String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let store = store_of(app)?;
+    let launcher = LauncherStore::new(&store);
+    let state = app.state::<LauncherState>();
+    let shortcut = state.shortcut();
+    let release = preference.enabled && state.ready();
+    if release {
+        app.global_shortcut().unregister(shortcut.as_str()).map_err(|error| error.to_string())?;
+        state.ready.store(false, Ordering::Release);
+    }
+    if let Err(error) = launcher.set_edge_preference(preference) {
+        if release {
+            if let Err(restore) = apply_shortcut(app, &shortcut) {
+                return Err(format!("保存启动方式失败，原快捷键也未能恢复。{error} {restore}"));
+            }
+        }
+        return Err(error);
+    }
+    apply_edge_preference(app, preference);
+    if !preference.enabled {
+        register_saved_shortcut(app, &launcher);
+    }
+    Ok(json!({
+        "edge": preference,
+        "shortcut": state.shortcut(),
+        "shortcutReady": state.ready(),
+    }))
 }
 
 /// 录制期间仍注册当前热键，避免 Windows 将 Alt+Space 作为系统菜单键处理。
@@ -552,9 +617,20 @@ pub fn start(app: &AppHandle) {
             return;
         }
     };
+    let launcher = LauncherStore::new(&store);
     #[cfg(windows)]
-    apply_edge_preference(app, LauncherStore::new(&store).edge_preference());
-    let configured = normalize_shortcut(&LauncherStore::new(&store).shortcut()).unwrap_or_else(|_| "Alt+Space".into());
+    {
+        let preference = launcher.edge_preference();
+        if preference.enabled {
+            apply_edge_preference(app, preference);
+            return;
+        }
+    }
+    register_saved_shortcut(app, &launcher);
+}
+
+fn register_saved_shortcut(app: &AppHandle, launcher: &LauncherStore) {
+    let configured = normalize_shortcut(&launcher.shortcut()).unwrap_or_else(|_| "Alt+Space".into());
     {
         let state = app.state::<LauncherState>();
         if let Ok(mut slot) = state.shortcut.lock() {
@@ -569,7 +645,7 @@ pub fn start(app: &AppHandle) {
             continue;
         }
         if apply_shortcut(app, candidate).is_ok() {
-            let _ = LauncherStore::new(&store).set_shortcut(candidate);
+            let _ = launcher.set_shortcut(candidate);
             if let Ok(mut slot) = app.state::<LauncherState>().shortcut.lock() {
                 *slot = candidate.to_string();
             }
@@ -582,6 +658,9 @@ pub fn start(app: &AppHandle) {
 /// 全局快捷键被按下时做什么。
 pub fn on_hotkey(app: &AppHandle) {
     let state = app.state::<LauncherState>();
+    if state.is_edge_mode() {
+        return;
+    }
     // 录制中：把这一下回送给页面，不 toggle（toggle 会把窗口关掉）。
     if state.capturing.load(Ordering::Relaxed) {
         let value = state.shortcut();

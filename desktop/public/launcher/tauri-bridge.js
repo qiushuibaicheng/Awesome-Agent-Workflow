@@ -51,6 +51,9 @@
     configureEdge: function (edge) {
       return invoke("launcher_shortcut", { edge: edge });
     },
+    dragDock: function () {
+      return invoke("launcher_shortcut", { dockDrag: true });
+    },
     capture: function (active) {
       return invoke("launcher_capture", { active: active === true });
     },

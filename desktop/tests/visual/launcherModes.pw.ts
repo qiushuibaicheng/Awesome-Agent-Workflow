@@ -6,6 +6,8 @@ async function openLauncher(
   page: Page,
   surface: "center" | "edge",
   side: Side = "right",
+  extra = 0,
+  theme: "dark" | "warm" = "dark",
 ) {
   await page.setViewportSize(
     surface === "center"
@@ -15,16 +17,18 @@ async function openLauncher(
         : { width: 106, height: 572 },
   );
   await page.addInitScript(
-    ({ initialSurface, initialSide }) => {
+    ({ initialSurface, initialSide, extraEntries, theme }) => {
       let edge = {
         enabled: initialSurface === "edge",
         delayMs: 350,
         side: initialSide,
-        offsetPercent: 50,
       };
       Object.defineProperty(window, "__TAURI_INTERNALS__", {
         value: {
-          invoke(command: string, args?: { id?: string; edge?: typeof edge }) {
+          invoke(
+            command: string,
+            args?: { id?: string; edge?: typeof edge; dockDrag?: boolean },
+          ) {
             if (command === "launcher_entries") {
               return Promise.resolve({
                 entries: [
@@ -48,11 +52,19 @@ async function openLauncher(
                     recent: 0,
                     icon: "workflow",
                   },
+                  ...Array.from({ length: extraEntries }, (_, index) => ({
+                    id: `personal:tool-${index}`,
+                    name: `个人工具 ${index + 1}`,
+                    keywords: [],
+                    pinned: false,
+                    recent: 0,
+                    icon: "tool",
+                  })),
                 ],
                 surface: initialSurface,
                 edge,
                 edgeSupported: true,
-                theme: "dark",
+                theme,
                 shortcut: "Alt+Space",
                 shortcutReady: true,
               });
@@ -60,7 +72,15 @@ async function openLauncher(
             if (command === "launcher_shortcut" && args?.edge) {
               edge = args.edge;
               document.documentElement.dataset.edgeSaved = JSON.stringify(edge);
-              return Promise.resolve({ edge });
+              return Promise.resolve({
+                edge,
+                shortcut: "Alt+Space",
+                shortcutReady: !edge.enabled,
+              });
+            }
+            if (command === "launcher_shortcut" && args?.dockDrag) {
+              document.documentElement.dataset.startedDrag = "true";
+              return Promise.resolve();
             }
             if (command === "launcher_open") {
               document.documentElement.dataset.lastEntry = args?.id;
@@ -75,13 +95,13 @@ async function openLauncher(
         },
       });
     },
-    { initialSurface: surface, initialSide: side },
+    { initialSurface: surface, initialSide: side, extraEntries: extra, theme },
   );
   await page.goto("/launcher/index.html");
   await expect(page.locator("html")).toHaveAttribute("data-surface", surface);
 }
 
-test("居中小窗支持键盘打开，在设置里可拖到下边并保存沿边位置", async ({
+test("居中小窗保留键盘操作，切换到贴边模式后停用快捷键设置", async ({
   page,
 }) => {
   await openLauncher(page, "center");
@@ -97,22 +117,11 @@ test("居中小窗支持键盘打开，在设置里可拖到下边并保存沿�
   await page.getByRole("button", { name: "启动器设置" }).click();
   const delay = page.getByLabel("停留时间");
   await expect(delay).toBeDisabled();
+  await expect(delay).toBeHidden();
   await page.getByRole("radio", { name: /贴边工具栏/ }).check();
-  const handle = page.locator("#dock-handle");
-  const preview = page.locator("#dock-preview");
-  const handleBounds = await handle.boundingBox();
-  const previewBounds = await preview.boundingBox();
-  expect(handleBounds).not.toBeNull();
-  expect(previewBounds).not.toBeNull();
-  const { x, y, width, height } = previewBounds!;
-  await page.mouse.move(handleBounds!.x + 6, handleBounds!.y + 8);
-  await page.mouse.down();
-  await page.mouse.move(x + width * 0.7, y + height - 2, { steps: 5 });
-  await page.mouse.up();
-  await expect(page.getByLabel("贴边方向")).toHaveValue("bottom");
-  const offset = Number(await page.getByLabel("沿边位置").inputValue());
-  expect(offset).toBeGreaterThanOrEqual(68);
-  expect(offset).toBeLessThanOrEqual(72);
+  await expect(page.getByLabel("全局唤起快捷键")).toBeHidden();
+  await expect(delay).toBeVisible();
+  await page.getByLabel("贴边方向").selectOption("bottom");
   await delay.selectOption("500");
   await page.getByRole("button", { name: "应用启动方式" }).click();
   await expect(page.getByText("启动方式已更新。")).toBeVisible();
@@ -122,9 +131,33 @@ test("居中小窗支持键盘打开，在设置里可拖到下边并保存沿�
       enabled: true,
       delayMs: 500,
       side: "bottom",
-      offsetPercent: offset,
     }),
   );
+  await expect(page.getByLabel("全局唤起快捷键")).toBeHidden();
+  await page.getByRole("radio", { name: /快捷键小窗/ }).check();
+  await page.getByRole("button", { name: "应用启动方式" }).click();
+  await expect(page.getByLabel("全局唤起快捷键")).toBeVisible();
+});
+
+test("窄窗口浅色设置页保留键盘焦点和可操作的选项", async ({ page }) => {
+  await openLauncher(page, "center", "right", 0, "warm");
+  await page.setViewportSize({ width: 360, height: 360 });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "warm");
+  await page.getByRole("button", { name: "启动器设置" }).click();
+  await expect(page.getByRole("button", { name: "返回" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("radio", { name: /快捷键小窗/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("radio", { name: /贴边工具栏/ })).toBeChecked();
+  await expect(page.getByLabel("贴边方向")).toBeVisible();
+  const settings = page.getByRole("region", { name: "启动器设置" });
+  expect(
+    await settings.evaluate((view) => view.scrollWidth - view.clientWidth),
+  ).toBe(0);
+  await page.getByRole("button", { name: "应用启动方式" }).click();
+  await expect(page.getByText("启动方式已更新。")).toBeInViewport();
+  await page.getByRole("button", { name: "返回" }).click();
+  await expect(page.getByRole("textbox", { name: "搜索功能" })).toBeFocused();
 });
 
 for (const side of ["left", "right", "top", "bottom"] as const) {
@@ -182,3 +215,41 @@ for (const side of ["left", "right", "top", "bottom"] as const) {
     );
   });
 }
+
+for (const side of ["right", "bottom"] as const) {
+  test(`在 ${side} 可用滚轮找到并打开远处的未固定工具`, async ({ page }) => {
+    await openLauncher(page, "edge", side, 24);
+    const items = page.getByRole("navigation", { name: "快捷工具" });
+    await items.hover({ position: { x: 25, y: 25 } });
+    const position = () =>
+      items.evaluate(
+        (list, vertical) => (vertical ? list.scrollTop : list.scrollLeft),
+        side === "right",
+      );
+    expect(await position()).toBe(0);
+    await page.mouse.wheel(0, 2000);
+    await expect.poll(position).toBeGreaterThan(500);
+    await page
+      .getByRole("button", { name: "个人工具 24", exact: true })
+      .click();
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-last-entry",
+      "personal:tool-23",
+    );
+  });
+}
+
+test("按住真实工具栏请求拖动，松手时避免误打开工具", async ({ page }) => {
+  await openLauncher(page, "edge", "right");
+  await page.getByRole("button", { name: "JSON 格式化" }).hover();
+  await page.mouse.down();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-started-drag",
+    "true",
+  );
+  await page.mouse.up();
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-last-entry",
+    /.+/,
+  );
+});

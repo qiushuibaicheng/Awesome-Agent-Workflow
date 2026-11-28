@@ -28,12 +28,28 @@
       /></label>
       <button
         id="settings-open"
-        class="brand"
+        class="icon-button"
         title="启动器设置"
         aria-label="启动器设置"
       >
-        A<span>✦</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16" />
+          <path d="M8 4v4m7 2v4m-5 2v4" />
+        </svg>
       </button>
+      <div id="settings-heading" class="settings-heading" hidden>
+        <button
+          id="settings-close"
+          class="icon-button"
+          aria-label="返回"
+          title="返回"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m14 6-6 6 6 6M8 12h12" />
+          </svg>
+        </button>
+        <h2 id="launcher-settings-title">启动器设置</h2>
+      </div>
     </header>
     <main id="content">
       <section aria-labelledby="caption">
@@ -59,97 +75,87 @@
       <nav id="dock-items" aria-label="快捷工具"></nav>
       <p id="dock-caption" aria-hidden="true"></p>
     </section>
-    <section id="settings" aria-label="启动器设置" hidden>
-      <div class="section-label">
-        <h2>启动器设置</h2>
-        <button id="settings-close">返回</button>
-      </div>
+    <section id="settings" aria-labelledby="launcher-settings-title" hidden>
       <form id="surface-form" hidden>
         <fieldset>
           <legend>启动方式</legend>
           <div class="surface-options">
             <label class="surface-option">
+              <svg class="option-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="6" width="18" height="12" rx="3" />
+                <path d="M7 10h.01M10.3 10h.01m3.3 0h.01M17 10h.01M8 14h8" />
+              </svg>
+              <span>
+                <strong>快捷键小窗</strong>
+                <small>按组合键打开居中搜索</small>
+              </span>
               <input type="radio" name="surface" value="keyboard" checked />
-              <span
-                ><strong>快捷键小窗</strong
-                ><small>按组合键打开居中搜索</small></span
-              >
             </label>
             <label class="surface-option">
+              <svg class="option-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="3" />
+                <path d="M15 4v16m3-12h.01m0 4h.01m0 4h.01" />
+              </svg>
+              <span>
+                <strong>贴边工具栏</strong>
+                <small>鼠标停在屏幕边缘时展开</small>
+              </span>
               <input type="radio" name="surface" value="edge" />
-              <span
-                ><strong>快捷键 + 贴边工具栏</strong
-                ><small>在选定的屏幕边缘停留即可唤出</small></span
-              >
             </label>
           </div>
         </fieldset>
-        <fieldset id="dock-location" hidden>
-          <legend>工具栏位置</legend>
-          <div class="dock-position-settings">
-            <div id="dock-preview" data-side="right">
-              <span aria-hidden="true">屏幕预览</span>
-              <button
-                type="button"
-                id="dock-handle"
-                tabindex="-1"
-                aria-hidden="true"
-                title="拖动工具栏"
-              >
-                •••
-              </button>
-            </div>
-            <div class="dock-position-fields">
-              <label for="dock-side">贴边方向</label>
+        <fieldset
+          id="dock-location"
+          class="settings-panel"
+          aria-label="贴边工具栏设置"
+          hidden
+        >
+          <div class="dock-fields">
+            <label for="dock-side">
+              贴边方向
               <select id="dock-side">
                 <option value="left">左侧</option>
                 <option value="right" selected>右侧</option>
                 <option value="top">上侧</option>
                 <option value="bottom">下侧</option>
               </select>
-              <label for="dock-offset">沿边位置</label>
-              <input
-                id="dock-offset"
-                type="range"
-                min="0"
-                max="100"
-                value="50"
-              />
-              <small>可拖动预览里的工具栏</small>
-            </div>
+            </label>
+            <label for="edge-delay">
+              停留时间
+              <select id="edge-delay">
+                <option value="200">0.2 秒</option>
+                <option value="350">0.35 秒</option>
+                <option value="500">0.5 秒</option>
+                <option value="750">0.75 秒</option>
+                <option value="1000">1 秒</option>
+              </select>
+            </label>
           </div>
+          <p>工具栏沿边居中。按住左键可拖到另一条边，工具较多时可滚动。</p>
         </fieldset>
         <div class="surface-controls">
-          <label for="edge-delay">停留时间</label>
-          <select id="edge-delay">
-            <option value="200">0.2 秒</option>
-            <option value="350">0.35 秒</option>
-            <option value="500">0.5 秒</option>
-            <option value="750">0.75 秒</option>
-            <option value="1000">1 秒</option>
-          </select>
+          <p id="surface-status" role="status" hidden></p>
           <button class="primary" type="submit">应用启动方式</button>
         </div>
-        <p id="surface-status" role="status" hidden></p>
       </form>
-      <label for="accelerator">全局唤起快捷键</label>
-      <p>在任何窗口快速打开 AAW。默认 Alt + Space。</p>
-      <form id="shortcut-form">
-        <input
-          id="accelerator"
-          aria-label="全局唤起快捷键"
-          aria-describedby="shortcut-hint"
-          placeholder="按下组合键"
-          autocomplete="off"
-          spellcheck="false"
-          readonly
-        /><button class="primary" type="submit">保存快捷键</button
-        ><button type="button" id="reset-shortcut">恢复默认</button>
-      </form>
-      <p id="shortcut-hint" role="status">
-        点击输入框后直接按组合键（需含 Ctrl / Alt / Shift 之一），例如
-        Ctrl+Shift+Space。
-      </p>
+      <div id="keyboard-settings" class="settings-panel">
+        <label for="accelerator">全局唤起快捷键</label>
+        <form id="shortcut-form">
+          <input
+            id="accelerator"
+            aria-label="全局唤起快捷键"
+            aria-describedby="shortcut-hint"
+            placeholder="按下组合键"
+            autocomplete="off"
+            spellcheck="false"
+            readonly
+          /><button class="primary" type="submit">保存快捷键</button
+          ><button type="button" id="reset-shortcut">恢复默认</button>
+        </form>
+        <p id="shortcut-hint" role="status">
+          点击输入框后按组合键，需包含 Ctrl、Alt 或 Shift。
+        </p>
+      </div>
     </section>
     <p id="message" role="status" hidden></p>
     <footer>

@@ -21,6 +21,7 @@ const surfaces = {
 };
 let surface = surfaces.center;
 let dockSide = "right";
+let edgeMode = false;
 const openTimeoutMs = 6000;
 const icons = {
   workflow:
@@ -112,7 +113,7 @@ function entryMark(entry) {
   // 色板由 registry 按工具 id 算好下发，页面不再自己哈希——否则会和主窗算出两套颜色。
   if (entry.tone !== undefined) icon.dataset.tone = String(entry.tone);
   icon.setAttribute("aria-hidden", "true");
-  if (entry.glyph) {
+  if (entry.icon === "tool" && entry.glyph) {
     const glyph = document.createElement("span");
     glyph.className = "item-glyph";
     glyph.textContent = entry.glyph;
@@ -129,6 +130,8 @@ const dock = window.launcherDock.create({
   open,
   showCenter: () =>
     window.launcher.showCenter().catch((error) => status(error.message)),
+  drag: () =>
+    window.launcher.dragDock().catch((error) => status(error.message)),
 });
 const rowHeight = 90;
 const labelHeight = 26; // .section-label 高 + 下边距
@@ -193,8 +196,7 @@ function render() {
   buttons = [...document.querySelectorAll(".item")];
   choose(0);
 }
-const shortcutHint =
-  "点击输入框后直接按组合键（需含 Ctrl / Alt / Shift 之一），例如 Ctrl+Shift+Space。";
+const shortcutHint = "点击输入框后按组合键，需包含 Ctrl、Alt 或 Shift。";
 let savedShortcut = "Alt+Space";
 function hint(text) {
   $("shortcut-hint").textContent = text || shortcutHint;
@@ -277,6 +279,7 @@ function validShortcut(value) {
 }
 function shortcutState(result) {
   savedShortcut = result.shortcut;
+  $("shortcut").hidden = edgeMode;
   $("shortcut").textContent = result.shortcutReady
     ? result.shortcut.replace("Control", "Ctrl").replaceAll("+", " + ")
     : "快捷键被占用 · 点击设置";
@@ -295,18 +298,12 @@ function applySurface(kind, side) {
 const surfaceForm = $("surface-form");
 const edgeDelay = $("edge-delay");
 const edgeOption = surfaceForm.elements.namedItem("surface");
-const dockPreview = $("dock-preview");
 const sideInput = $("dock-side");
-const offsetInput = $("dock-offset");
 function updateDockSettings() {
   const enabled = edgeOption.value === "edge";
   edgeDelay.disabled = !enabled;
   $("dock-location").hidden = !enabled;
-  window.launcherDock.updatePicker(
-    dockPreview,
-    sideInput.value,
-    offsetInput.value,
-  );
+  $("keyboard-settings").hidden = edgeMode || enabled;
 }
 function applyEdgePreference(preference) {
   edgeOption.value = preference.enabled ? "edge" : "keyboard";
@@ -316,7 +313,6 @@ function applyEdgePreference(preference) {
   }
   edgeDelay.value = delay;
   sideInput.value = preference.side ?? "right";
-  offsetInput.value = preference.offsetPercent ?? 50;
   updateDockSettings();
 }
 function surfaceStatus(text) {
@@ -329,12 +325,6 @@ function editSurface() {
   surfaceStatus("");
 }
 surfaceForm.addEventListener("change", editSurface);
-offsetInput.addEventListener("input", editSurface);
-window.launcherDock.bindPicker(dockPreview, (side, offset) => {
-  sideInput.value = side;
-  offsetInput.value = offset;
-  editSurface();
-});
 surfaceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (savingSurface) return;
@@ -346,8 +336,9 @@ surfaceForm.addEventListener("submit", async (event) => {
       enabled: edgeOption.value === "edge",
       delayMs: Number(edgeDelay.value),
       side: sideInput.value,
-      offsetPercent: Number(offsetInput.value),
     });
+    edgeMode = result.edge.enabled;
+    shortcutState(result);
     surfaceDirty = false;
     applyEdgePreference(result.edge);
     surfaceStatus("启动方式已更新。");
@@ -368,9 +359,11 @@ async function refresh(reset = true) {
     if (result.theme === "warm" || result.theme === "dark")
       document.documentElement.dataset.theme = result.theme;
     applySurface(result.surface, result.edge?.side);
+    edgeMode = result.edge?.enabled === true;
     surfaceForm.hidden = !result.edgeSupported;
     if (result.edge && !surfaceDirty && !savingSurface)
       applyEdgePreference(result.edge);
+    else updateDockSettings();
     entries = result.entries;
     shortcutState(result);
     // reset 只重置"浏览态"（搜索词、展开、全部功能），不重置设置页与草稿。
@@ -393,11 +386,14 @@ async function refresh(reset = true) {
 function settings(visible, restoreFocus = true) {
   settingsOpen = visible;
   $("settings").hidden = !visible;
+  $("settings-heading").hidden = !visible;
+  $("settings-open").hidden = visible;
+  query.closest(".search").hidden = visible;
   $("content").hidden = visible;
-  query.disabled = visible;
   if (visible) {
     if (!acceleratorDirty) $("accelerator").value = savedShortcut;
     hint("");
+    $("settings-close").focus();
     // 点击录制框后才开始录制，设置页打开时仍可用快捷键收起启动器。
   } else {
     setShortcutCapture(false);
