@@ -192,6 +192,19 @@ impl LauncherStore {
         })
     }
 
+    pub fn edge_preference(&self) -> super::launcher::EdgePreference {
+        self.read().get("edge").cloned()
+            .and_then(|value| serde_json::from_value::<super::launcher::EdgePreference>(value).ok())
+            .unwrap_or_default()
+            .normalized()
+    }
+
+    pub fn set_edge_preference(&self, preference: super::launcher::EdgePreference) -> Result<(), String> {
+        self.update(|current| {
+            current.insert("edge".into(), json!(preference));
+        })
+    }
+
     /// `users[owner] = { pinned: [...], recent: {...} }`
     fn user(&self, owner: &str) -> Value {
         self.read()

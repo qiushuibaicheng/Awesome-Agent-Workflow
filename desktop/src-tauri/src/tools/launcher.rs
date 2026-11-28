@@ -27,23 +27,44 @@ use std::sync::Mutex;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
+mod edge;
+pub use edge::Preference as EdgePreference;
+
 use super::catalog::{self, LauncherStore};
 use super::store::ToolStore;
 use super::ToolsHost;
 
 /// 启动器窗口的 label。固定一个，复用同一个窗口。
 const LABEL: &str = "launcher";
+const CENTER_WIDTH: f64 = 800.0;
+const CENTER_HEIGHT: f64 = 360.0;
 
 /// 录制期间，已注册的全局快捷键会回送给录制框。
 pub struct LauncherState {
     capturing: AtomicBool,
     shortcut: Mutex<String>,
     ready: AtomicBool,
+    edge_surface: AtomicBool,
+    #[cfg(windows)]
+    edge_enabled: AtomicBool,
+    #[cfg(windows)]
+    edge_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    presentation_busy: AtomicBool,
 }
 
 impl Default for LauncherState {
     fn default() -> Self {
-        Self { capturing: AtomicBool::new(false), shortcut: Mutex::new("Alt+Space".into()), ready: AtomicBool::new(false) }
+        Self {
+            capturing: AtomicBool::new(false),
+            shortcut: Mutex::new("Alt+Space".into()),
+            ready: AtomicBool::new(false),
+            edge_surface: AtomicBool::new(false),
+            #[cfg(windows)]
+            edge_enabled: AtomicBool::new(false),
+            #[cfg(windows)]
+            edge_task: Mutex::new(None),
+            presentation_busy: AtomicBool::new(false),
+        }
     }
 }
 
@@ -54,6 +75,23 @@ impl LauncherState {
 
     pub fn ready(&self) -> bool {
         self.ready.load(Ordering::Relaxed)
+    }
+
+    fn is_edge_surface(&self) -> bool {
+        self.edge_surface.load(Ordering::Acquire)
+    }
+
+    fn begin_presentation(&self) -> Option<PresentationGuard<'_>> {
+        self.presentation_busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .ok().map(|_| PresentationGuard(&self.presentation_busy))
+    }
+}
+
+struct PresentationGuard<'a>(&'a AtomicBool);
+
+impl Drop for PresentationGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 
@@ -154,14 +192,16 @@ fn entries_of(app: &AppHandle) -> Result<Value, String> {
         "theme": library.theme,
         "shortcut": state.shortcut(),
         "shortcutReady": state.ready(),
+        "surface": if state.is_edge_surface() { "edge" } else { "center" },
+        "edge": launcher.edge_preference(),
+        "edgeSupported": cfg!(windows),
         "broken": library.broken,
     }))
 }
 
-/// 显示（或切换隐藏）启动器。
-pub fn show(app: &AppHandle, toggle: bool) -> Result<(), String> {
-    let window = match app.get_webview_window(LABEL) {
-        Some(window) => window,
+fn launcher_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    match app.get_webview_window(LABEL) {
+        Some(window) => Ok(window),
         None => {
             let window = tauri::WebviewWindowBuilder::new(
                 app,
@@ -170,7 +210,7 @@ pub fn show(app: &AppHandle, toggle: bool) -> Result<(), String> {
                 tauri::WebviewUrl::App("launcher/index.html".into()),
             )
             .title("AAW 启动器")
-            .inner_size(800.0, 360.0)
+            .inner_size(CENTER_WIDTH, CENTER_HEIGHT)
             .resizable(false)
             .decorations(false)
             .always_on_top(true)
@@ -182,30 +222,105 @@ pub fn show(app: &AppHandle, toggle: bool) -> Result<(), String> {
             let handle = app.clone();
             window.on_window_event(move |event| {
                 if matches!(event, tauri::WindowEvent::Focused(false)) {
-                    handle
-                        .state::<LauncherState>()
-                        .capturing
-                        .store(false, Ordering::Relaxed);
-                    if let Some(window) = handle.get_webview_window(LABEL) {
-                        let _ = window.hide();
+                    let state = handle.state::<LauncherState>();
+                    state.capturing.store(false, Ordering::Relaxed);
+                    if !state.is_edge_surface() {
+                        if let Some(window) = handle.get_webview_window(LABEL) {
+                            let _ = window.hide();
+                        }
                     }
                 }
             });
-            window
+            Ok(window)
         }
-    };
+    }
+}
 
-    if toggle && window.is_visible().unwrap_or(false) {
+fn refresh(window: &tauri::WebviewWindow) {
+    let _ = window.eval("window.__launcherRefresh && window.__launcherRefresh()");
+}
+
+fn conceal(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    #[cfg(windows)]
+    if window.label() == LABEL && window.state::<LauncherState>().is_edge_surface() {
+        // 贴边展示由 Win32 完成，Tauri 的可见状态仍是隐藏。
+        return edge::set_inactive_visibility(window, false);
+    }
+    window.hide()
+}
+
+/// 用快捷键或工具中心打开居中小窗。
+pub fn show(app: &AppHandle, toggle: bool) -> Result<(), String> {
+    let state = app.state::<LauncherState>();
+    let Some(_guard) = state.begin_presentation() else { return Ok(()) };
+    let window = launcher_window(app)?;
+
+    if toggle && !state.is_edge_surface() && window.is_visible().unwrap_or(false) {
         let _ = window.hide();
         return Ok(());
     }
+    if state.is_edge_surface() {
+        window.set_size(tauri::LogicalSize::new(CENTER_WIDTH, CENTER_HEIGHT)).map_err(|error| error.to_string())?;
+    }
+    state.edge_surface.store(false, Ordering::Release);
     window.center().ok();
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().ok();
-    // 每次唤起都刷新一次目录：刚装完的工具不该等到重启才出现。
-    // 用 eval 而不是事件：页面只需要"再读一次"，不需要知道谁让它读的。
-    let _ = window.eval("window.__launcherRefresh && window.__launcherRefresh()");
+    refresh(&window);
     Ok(())
+}
+
+#[cfg(windows)]
+fn reveal_edge(app: &AppHandle, placement: edge::Placement) -> Result<(), String> {
+    let state = app.state::<LauncherState>();
+    let Some(_guard) = state.begin_presentation() else { return Ok(()) };
+    if !state.edge_enabled.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let window = launcher_window(app)?;
+    if window.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
+    window.set_position(placement.position).map_err(|error| error.to_string())?;
+    window.set_size(placement.size).map_err(|error| error.to_string())?;
+    let outer = window.outer_size().map_err(|error| error.to_string())?;
+    window.set_position(placement.fit_outer(outer)).map_err(|error| error.to_string())?;
+    state.edge_surface.store(true, Ordering::Release);
+    edge::set_inactive_visibility(&window, true).map_err(|error| error.to_string())?;
+    if !state.edge_enabled.load(Ordering::Acquire) {
+        let _ = conceal(&window);
+        return Ok(());
+    }
+    refresh(&window);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn hide_edge(app: &AppHandle) {
+    let state = app.state::<LauncherState>();
+    let Some(_guard) = state.begin_presentation() else { return };
+    if state.is_edge_surface() {
+        if let Some(window) = app.get_webview_window(LABEL) {
+            let _ = conceal(&window);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn apply_edge_preference(app: &AppHandle, preference: EdgePreference) {
+    let state = app.state::<LauncherState>();
+    state.edge_enabled.store(preference.enabled, Ordering::Release);
+    if let Ok(mut task) = state.edge_task.lock() {
+        if let Some(previous) = task.take() {
+            previous.abort();
+        }
+        if preference.enabled {
+            *task = Some(tauri::async_runtime::spawn(edge::watch(app.clone(), preference.delay_ms)));
+        }
+    }
+    if !preference.enabled {
+        hide_edge(app);
+    }
 }
 
 // ── 命令 ─────────────────────────────────────────────────────────────────
@@ -237,14 +352,14 @@ pub async fn launcher_open(window: tauri::WebviewWindow, app: AppHandle, id: Str
         // 目录恰好是最容易缺的那一步（小窗没有主窗那套解析）。
         super::open_tool(&app, tool_id, None)?;
         if let Some(panel) = app.get_webview_window(LABEL) {
-            let _ = panel.hide();
+            let _ = conceal(&panel);
         }
         record_tool_open(&app, tool_id);
         return Ok(());
     }
     // 非工具条目：焦点要交回主窗，先把启动器收起来。
     if let Some(panel) = app.get_webview_window(LABEL) {
-        let _ = panel.hide();
+        let _ = conceal(&panel);
     }
     let target = match id.as_str() {
         "builtin:aaw" => "aaw",
@@ -269,7 +384,7 @@ pub async fn launcher_open(window: tauri::WebviewWindow, app: AppHandle, id: Str
 #[tauri::command]
 pub fn launcher_hide(window: tauri::WebviewWindow) -> Result<(), String> {
     ensure_launcher(&window)?;
-    window.hide().map_err(|error| error.to_string())
+    conceal(&window).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -285,10 +400,33 @@ pub fn launcher_theme(app: AppHandle) -> Result<String, String> {
     Ok(catalog::theme_of(&store_of(&app)?.preferences()?))
 }
 
-/// 保存并立即生效。失败时抛错，让页面把输入框退回仍然生效的那组。
+/// 保存启动器触发设置。旧调用方仍使用 value 保存快捷键。
 #[tauri::command]
-pub fn launcher_shortcut(window: tauri::WebviewWindow, app: AppHandle, value: String) -> Result<Value, String> {
+pub fn launcher_shortcut(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    value: Option<String>,
+    edge: Option<EdgePreference>,
+) -> Result<Value, String> {
     ensure_launcher(&window)?;
+    let value = match (value, edge) {
+        (Some(value), None) => value,
+        (None, Some(preference)) => {
+            #[cfg(windows)]
+            {
+                let preference = preference.normalized();
+                LauncherStore::new(&store_of(&app)?).set_edge_preference(preference)?;
+                apply_edge_preference(&app, preference);
+                return Ok(json!({ "edge": preference }));
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = preference;
+                return Err("贴边唤出目前仅在 Windows 上可用。".into());
+            }
+        }
+        _ => return Err("请一次保存一项启动器设置。".into()),
+    };
     let next = normalize_shortcut(&value)?;
     let store = store_of(&app)?;
     let state = app.state::<LauncherState>();
@@ -413,6 +551,8 @@ pub fn start(app: &AppHandle) {
             return;
         }
     };
+    #[cfg(windows)]
+    apply_edge_preference(app, LauncherStore::new(&store).edge_preference());
     let configured = normalize_shortcut(&LauncherStore::new(&store).shortcut()).unwrap_or_else(|_| "Alt+Space".into());
     {
         let state = app.state::<LauncherState>();
