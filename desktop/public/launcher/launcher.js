@@ -13,6 +13,13 @@ let busy = false;
 // 快捷键就这样被吞掉了。
 let settingsOpen = false;
 let acceleratorDirty = false;
+let surfaceDirty = false;
+let savingSurface = false;
+const surfaces = {
+  center: { rowHeight: 90, focusSearch: true, pinnedFirst: false },
+  edge: { rowHeight: 54, focusSearch: false, pinnedFirst: true },
+};
+let surface = surfaces.center;
 const openTimeoutMs = 6000;
 const icons = {
   workflow:
@@ -106,7 +113,6 @@ function tile(entry) {
   li.append(button, pin);
   return li;
 }
-const rowHeight = 90; // .item 最小高 86 + 网格行距 4
 const labelHeight = 26; // .section-label 高 + 下边距
 function gridColumns() {
   const columns = window
@@ -120,8 +126,11 @@ function visibleRows(columns, pinnedCount) {
   const height = $("content").clientHeight;
   if (!height) return 1; // 首帧或测试环境没有布局信息时退回单行
   const pinnedRows = pinnedCount ? Math.ceil(pinnedCount / columns) : 0;
-  const reserved = labelHeight * 2 + pinnedRows * rowHeight + 16;
-  return Math.max(1, Math.min(3, Math.floor((height - reserved) / rowHeight)));
+  const reserved = labelHeight * 2 + pinnedRows * surface.rowHeight + 16;
+  return Math.max(
+    1,
+    Math.min(3, Math.floor((height - reserved) / surface.rowHeight)),
+  );
 }
 function render() {
   const term = query.value.trim().toLowerCase();
@@ -255,6 +264,59 @@ function shortcutState(result) {
   // 正在编辑时不回写：refresh 每次唤起都会调到这里，覆盖就等于抹掉草稿。
   if (!acceleratorDirty) $("accelerator").value = result.shortcut;
 }
+function applySurface(kind) {
+  const next = kind === "edge" ? "edge" : "center";
+  if (document.documentElement.dataset.surface === next) return;
+  surface = surfaces[next];
+  document.documentElement.dataset.surface = next;
+  const content = $("content");
+  const pinned = $("pinned-section");
+  if (surface.pinnedFirst) content.prepend(pinned);
+  else content.append(pinned);
+  if (!surface.focusSearch && settingsOpen) settings(false, false);
+}
+const surfaceForm = $("surface-form");
+const edgeDelay = $("edge-delay");
+const edgeOption = surfaceForm.elements.namedItem("surface");
+function applyEdgePreference(preference) {
+  edgeOption.value = preference.enabled ? "edge" : "keyboard";
+  const delay = String(preference.delayMs);
+  if (!Array.from(edgeDelay.options).some((option) => option.value === delay)) {
+    edgeDelay.add(new window.Option(`${preference.delayMs / 1000} 秒`, delay));
+  }
+  edgeDelay.value = delay;
+  edgeDelay.disabled = !preference.enabled;
+}
+function surfaceStatus(text) {
+  $("surface-status").hidden = !text;
+  $("surface-status").textContent = text;
+}
+surfaceForm.addEventListener("change", () => {
+  surfaceDirty = true;
+  edgeDelay.disabled = edgeOption.value !== "edge";
+  surfaceStatus("");
+});
+surfaceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (savingSurface) return;
+  savingSurface = true;
+  const button = surfaceForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await window.launcher.configureEdge({
+      enabled: edgeOption.value === "edge",
+      delayMs: Number(edgeDelay.value),
+    });
+    surfaceDirty = false;
+    applyEdgePreference(result.edge);
+    surfaceStatus("启动方式已更新。");
+  } catch (error) {
+    surfaceStatus(error.message);
+  } finally {
+    savingSurface = false;
+    button.disabled = false;
+  }
+});
 async function refresh(reset = true) {
   const generation = ++refreshing;
   try {
@@ -264,6 +326,10 @@ async function refresh(reset = true) {
     // 页面不再单发一次 IPC——那会再把 preferences.json 读一遍。
     if (result.theme === "warm" || result.theme === "dark")
       document.documentElement.dataset.theme = result.theme;
+    applySurface(result.surface);
+    surfaceForm.hidden = !result.edgeSupported;
+    if (result.edge && !surfaceDirty && !savingSurface)
+      applyEdgePreference(result.edge);
     entries = result.entries;
     shortcutState(result);
     // reset 只重置"浏览态"（搜索词、展开、全部功能），不重置设置页与草稿。
@@ -278,12 +344,12 @@ async function refresh(reset = true) {
       // 唤起（或刷新）不把焦点塞进录制框：焦点在框里就等于"正在录"，全局热键
       // 会让开，用户反而没法用快捷键把这个面板收回去。录制由用户点一下框开始。
       if (document.activeElement === $("accelerator")) $("accelerator").blur();
-    } else if (reset) query.focus();
+    } else if (reset && surface.focusSearch) query.focus();
   } catch (error) {
     status(error.message);
   }
 }
-function settings(visible) {
+function settings(visible, restoreFocus = true) {
   settingsOpen = visible;
   $("settings").hidden = !visible;
   $("content").hidden = visible;
@@ -294,7 +360,7 @@ function settings(visible) {
     // 点击录制框后才开始录制，设置页打开时仍可用快捷键收起启动器。
   } else {
     setShortcutCapture(false);
-    query.focus();
+    if (restoreFocus) query.focus();
   }
 }
 /**

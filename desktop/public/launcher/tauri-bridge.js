@@ -45,6 +45,9 @@
     shortcut: function (value) {
       return invoke("launcher_shortcut", { value: value });
     },
+    configureEdge: function (edge) {
+      return invoke("launcher_shortcut", { edge: edge });
+    },
     capture: function (active) {
       return invoke("launcher_capture", { active: active === true });
     },

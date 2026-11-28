@@ -385,6 +385,139 @@ footer kbd:not(:first-child) {
   color: var(--muted);
   line-height: 1.6;
 }
+
+#surface-form {
+  margin-bottom: 14px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.surface-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+#surface-form fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+#surface-form legend {
+  margin-bottom: 7px;
+  color: var(--ink-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+#settings .surface-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.surface-option:has(input:checked) {
+  border-color: var(--selected-ring);
+  background: var(--selected);
+}
+.surface-option input {
+  flex: none;
+  width: auto;
+  margin: 0;
+  accent-color: var(--selected-ring);
+}
+.surface-option strong,
+.surface-option small {
+  display: block;
+}
+.surface-option strong {
+  color: var(--ink-strong);
+  font-size: 12px;
+}
+.surface-option small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.surface-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+.surface-controls select {
+  min-height: 28px;
+  padding-inline: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--input-bg);
+  font: inherit;
+  font-size: 12px;
+}
+.surface-controls button {
+  margin-left: auto;
+}
+#settings #surface-status {
+  margin: 6px 0 0;
+}
+:root[data-surface="edge"] header {
+  gap: 10px;
+  padding: 12px 14px;
+}
+:root[data-surface="edge"] #query {
+  font-size: 14px;
+}
+:root[data-surface="edge"] main {
+  gap: 14px;
+  padding: 11px 12px;
+}
+:root[data-surface="edge"] #pinned-section {
+  margin-top: 0;
+}
+:root[data-surface="edge"] .grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-surface="edge"] .item {
+  min-height: 50px;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px 35px 6px 8px;
+  text-align: left;
+}
+:root[data-surface="edge"] .item-mark {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+:root[data-surface="edge"] .item-mark svg {
+  width: 19px;
+  height: 19px;
+}
+:root[data-surface="edge"] .item-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-surface="edge"] footer {
+  padding-inline: 12px;
+}
+@media (max-width: 560px) {
+  #surface-form {
+    display: grid;
+    align-items: stretch;
+  }
+  .surface-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 form {
   display: flex;
   flex-wrap: wrap;

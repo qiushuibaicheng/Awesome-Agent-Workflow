@@ -59,6 +59,39 @@
         <h2>启动器设置</h2>
         <button id="settings-close">返回</button>
       </div>
+      <form id="surface-form" hidden>
+        <fieldset>
+          <legend>启动方式</legend>
+          <div class="surface-options">
+            <label class="surface-option">
+              <input type="radio" name="surface" value="keyboard" checked />
+              <span
+                ><strong>快捷键小窗</strong
+                ><small>按组合键打开居中搜索</small></span
+              >
+            </label>
+            <label class="surface-option">
+              <input type="radio" name="surface" value="edge" />
+              <span
+                ><strong>快捷键 + 右侧贴边</strong
+                ><small>在屏幕右边缘停留即可唤出</small></span
+              >
+            </label>
+          </div>
+        </fieldset>
+        <div class="surface-controls">
+          <label for="edge-delay">停留时间</label>
+          <select id="edge-delay">
+            <option value="200">0.2 秒</option>
+            <option value="350">0.35 秒</option>
+            <option value="500">0.5 秒</option>
+            <option value="750">0.75 秒</option>
+            <option value="1000">1 秒</option>
+          </select>
+          <button class="primary" type="submit">应用启动方式</button>
+        </div>
+        <p id="surface-status" role="status" hidden></p>
+      </form>
       <label for="accelerator">全局唤起快捷键</label>
       <p>在任何窗口快速打开 AAW。默认 Alt + Space。</p>
       <form id="shortcut-form">
