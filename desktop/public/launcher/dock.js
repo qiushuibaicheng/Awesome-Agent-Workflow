@@ -40,7 +40,7 @@ function createDock({ root, items, caption, makeIcon, open, showCenter }) {
   let buttons = [];
   let vertical = true;
   let current = null;
-  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
 
   function showCaption(button) {
     if (current === button) return;
@@ -51,7 +51,7 @@ function createDock({ root, items, caption, makeIcon, open, showCenter }) {
   items.addEventListener("pointermove", (event) => {
     const hovered = event.target.closest(".dock-button");
     showCaption(hovered);
-    if (motion.matches) return;
+    if (motion?.matches) return;
     const pointer = vertical ? event.clientY : event.clientX;
     // 使用按钮的静态位置计算距离，放大后的图标不会改变命中区。
     const weights = buttons.map((button) => {
